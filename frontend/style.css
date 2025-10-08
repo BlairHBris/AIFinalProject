@@ -1,0 +1,103 @@
+body {
+	font-family: Arial, sans-serif;
+	background: #1e1e1e;
+	color: #f0f0f0;
+	margin: 0;
+	padding: 0;
+}
+
+.container {
+	max-width: 800px;
+	margin: 2rem auto;
+	padding: 1rem;
+	background: #2b2b2b;
+	border-radius: 10px;
+}
+
+h1 {
+	text-align: center;
+}
+
+h3,
+h4 {
+	margin-top: 1rem;
+}
+
+.movie-card {
+	background: #3a3a3a;
+	padding: 10px;
+	margin: 10px 0;
+	border-radius: 6px;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+
+button {
+	background: #007bff;
+	border: none;
+	color: white;
+	padding: 6px 10px;
+	border-radius: 5px;
+	cursor: pointer;
+	margin-left: 5px;
+}
+
+button:hover {
+	background: #0056b3;
+}
+
+input,
+select,
+option,
+.multi-select {
+	padding: 6px;
+	margin: 5px 0;
+	border-radius: 4px;
+	border: 1px solid #ccc;
+	background: #2b2b2b;
+	color: #f0f0f0;
+}
+
+select[multiple] {
+	height: 100px;
+	width: 100%;
+	overflow-y: scroll;
+}
+
+/* Make labels for checkboxes inline */
+label {
+	display: inline-block;
+	margin-right: 10px;
+}
+
+/* Scrollable container for recommendations and history */
+#recommendations,
+#history {
+	max-height: 300px;
+	overflow-y: auto;
+	margin-top: 1rem;
+}
+
+/* User section */
+#user-section,
+#recommend-section {
+	margin-bottom: 2rem;
+}
+
+/* Genre & actor section */
+#genre-options,
+#actor-options {
+	margin-bottom: 10px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 600px) {
+	.container {
+		margin: 1rem;
+		padding: 0.5rem;
+	}
+	button {
+		padding: 5px 8px;
+	}
+}

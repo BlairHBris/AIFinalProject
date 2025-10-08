@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>🎬 Movie Recommender</title>
+		<link rel="stylesheet" href="style.css" />
+	</head>
+	<body>
+		<div class="container">
+			<h1>🎬 Movie Recommender</h1>
+
+			<div id="user-section">
+				<h3>User Login</h3>
+				<input id="username" placeholder="Enter your username" />
+				<div>
+					<label
+						><input type="radio" name="userMode" value="login" checked />
+						Existing User</label
+					>
+					<label
+						><input type="radio" name="userMode" value="new" /> New User</label
+					>
+				</div>
+				<button id="loginBtn">Submit</button>
+				<p id="user-info"></p>
+			</div>
+
+			<div id="recommend-section" style="display: none">
+				<h3>Get Recommendations</h3>
+
+				<div id="genre-section">
+					<h4>Select Genres</h4>
+					<select id="genre-options" multiple size="5"></select>
+				</div>
+
+				<div id="actor-section">
+					<h4>Select Actors</h4>
+					<select id="actor-options" multiple size="5"></select>
+				</div>
+
+				<select id="type">
+					<option value="torch">PyTorch CF</option>
+					<option value="hybrid">Hybrid</option>
+					<option value="content">Content-Based</option>
+				</select>
+				<button id="getRecsBtn">Recommend</button>
+
+				<div id="recommendations"></div>
+
+				<h3>Your History</h3>
+				<div id="history"></div>
+
+				<button id="logoutBtn">Logout</button>
+			</div>
+		</div>
+
+		<script src="script.js"></script>
+	</body>
+</html>
