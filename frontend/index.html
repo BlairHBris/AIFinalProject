@@ -31,16 +31,22 @@
 
 				<div id="genre-section">
 					<h4>Select Genres</h4>
-					<select id="genre-options" multiple size="5"></select>
+					<div class="multi-select" id="genre-select-container">
+						<select id="genre-options" multiple size="5"></select>
+						<div class="selected-display">Select genres...</div>
+					</div>
 				</div>
 
 				<div id="actor-section">
 					<h4>Select Actors</h4>
-					<select id="actor-options" multiple size="5"></select>
+					<div class="multi-select" id="actor-select-container">
+						<select id="actor-options" multiple size="5"></select>
+						<div class="selected-display">Select actors...</div>
+					</div>
 				</div>
 
 				<select id="type">
-					<option value="torch">PyTorch CF</option>
+					<option value="collab">Collaborative (PyTorch CF)</option>
 					<option value="hybrid">Hybrid</option>
 					<option value="content">Content-Based</option>
 				</select>

@@ -21,21 +21,27 @@ const ACTORS = [
 
 // ===== Initialize Page =====
 window.addEventListener("DOMContentLoaded", () => {
-	// Populate genre checkboxes
-	const genreContainer = document.getElementById("genre-options");
+	// Populate genre options
+	const genreSelect = document.getElementById("genre-options");
 	GENRES.forEach((g) => {
-		const label = document.createElement("label");
-		label.innerHTML = `<input type="checkbox" value="${g}" /> ${g}`;
-		genreContainer.appendChild(label);
+		const opt = document.createElement("option");
+		opt.value = g;
+		opt.textContent = g;
+		genreSelect.appendChild(opt);
 	});
 
-	// Populate actor checkboxes
-	const actorContainer = document.getElementById("actor-options");
+	// Populate actor options
+	const actorSelect = document.getElementById("actor-options");
 	ACTORS.forEach((a) => {
-		const label = document.createElement("label");
-		label.innerHTML = `<input type="checkbox" value="${a}" /> ${a}`;
-		actorContainer.appendChild(label);
+		const opt = document.createElement("option");
+		opt.value = a;
+		opt.textContent = a;
+		actorSelect.appendChild(opt);
 	});
+
+	// Setup multi-select displays
+	setupMultiSelect("genre-options", "genre-select-container");
+	setupMultiSelect("actor-options", "actor-select-container");
 
 	// Auto-login if username saved
 	const savedUser = localStorage.getItem("username");
@@ -49,6 +55,30 @@ window.addEventListener("DOMContentLoaded", () => {
 		loadHistory();
 	}
 });
+
+// ===== Multi-select helper =====
+function setupMultiSelect(selectId, containerId) {
+	const select = document.getElementById(selectId);
+	const display = document.querySelector(`#${containerId} .selected-display`);
+
+	function updateDisplay() {
+		const selected = Array.from(select.selectedOptions).map((opt) => opt.value);
+		display.innerHTML =
+			selected.length > 0
+				? selected.map((v) => `<span>${v}</span>`).join("")
+				: selectId.includes("genre")
+				? "Select genres..."
+				: "Select actors...";
+	}
+
+	select.addEventListener("change", updateDisplay);
+	updateDisplay();
+
+	// Clicking display toggles dropdown
+	display.addEventListener("click", () => {
+		select.size = select.size === 5 ? 0 : 5;
+	});
+}
 
 // ===== Login / Create User =====
 document.getElementById("loginBtn").addEventListener("click", async () => {
@@ -90,10 +120,10 @@ document.getElementById("getRecsBtn").addEventListener("click", async () => {
 	if (!currentUsername) return alert("Please log in first!");
 
 	const genres = Array.from(
-		document.querySelectorAll("#genre-options input:checked")
+		document.querySelectorAll("#genre-options option:checked")
 	).map((i) => i.value);
 	const actors = Array.from(
-		document.querySelectorAll("#actor-options input:checked")
+		document.querySelectorAll("#actor-options option:checked")
 	).map((i) => i.value);
 	const type = document.getElementById("type").value;
 

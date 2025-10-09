@@ -101,3 +101,38 @@ label {
 		padding: 5px 8px;
 	}
 }
+
+.multi-select {
+	position: relative;
+	display: inline-block;
+	width: 200px;
+}
+
+.multi-select select {
+	width: 100%;
+	height: auto;
+	opacity: 0; /* hide native select */
+	position: absolute;
+	top: 0;
+	left: 0;
+	cursor: pointer;
+}
+
+.selected-display {
+	border: 1px solid #ccc;
+	padding: 5px;
+	min-height: 30px;
+	cursor: pointer;
+	user-select: none;
+	background-color: #fff;
+}
+
+.selected-display span {
+	display: inline-block;
+	background: #007bff;
+	color: white;
+	padding: 2px 6px;
+	margin: 2px;
+	border-radius: 3px;
+	font-size: 0.9em;
+}
