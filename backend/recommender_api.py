@@ -65,16 +65,13 @@ UPDATE_THRESHOLD = 10
 movies = pd.read_csv(MOVIES_FILE)
 ratings = pd.read_csv(RATINGS_FILE)
 
-# Normalize column names
 movies.columns = [c.strip().lower() for c in movies.columns]
 ratings.columns = [c.strip().lower() for c in ratings.columns]
 
-# Ensure expected columns exist
 movies["genres"] = movies.get("genres", "").fillna("")
 if "actors" not in movies.columns:
     movies["actors"] = ""
 
-# One-hot encode genres
 unique_genres = set("|".join(movies["genres"]).split("|"))
 for g in unique_genres:
     if g:
@@ -97,7 +94,6 @@ class RecommenderNet(nn.Module):
         x = self.fc(x)
         return x.squeeze()
 
-# Map user/movie IDs
 user_ids = ratings["userid"].unique()
 movie_ids = ratings["movieid"].unique()
 user2idx = {u: i for i, u in enumerate(user_ids)}
@@ -108,7 +104,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = RecommenderNet(num_users, num_movies).to(device)
 
 # =======================
-# 5a. Train or Load Model (PyTorch 2.6+ safe)
+# 5a. Train or Load Model
 # =======================
 if not os.path.exists(MODEL_FILE):
     print("Training PyTorch model...")
@@ -127,7 +123,7 @@ if not os.path.exists(MODEL_FILE):
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
-    for epoch in range(3):  # Increase epochs for better accuracy
+    for epoch in range(3):
         total_loss = 0
         for u, m, r in loader:
             u, m, r = u.to(device), m.to(device), r.to(device)
@@ -146,9 +142,14 @@ if not os.path.exists(MODEL_FILE):
     }, MODEL_FILE)
     print("Saved torch_recommender.pt")
 else:
-    # Safe load for PyTorch 2.6+
-    with torch.serialization.safe_globals([np.core.multiarray.scalar, np.dtype]):
-        checkpoint = torch.load(MODEL_FILE, map_location=device)
+    # =======================
+    # Safe checkpoint loading for PyTorch 2.6+
+    # =======================
+    try:
+        checkpoint = torch.load(MODEL_FILE, map_location=device, weights_only=False)
+    except Exception:
+        with torch.serialization.safe_globals([np.core.multiarray.scalar]):
+            checkpoint = torch.load(MODEL_FILE, map_location=device, weights_only=False)
 
     model.load_state_dict(checkpoint["model_state_dict"])
     user2idx = checkpoint["user2idx"]
