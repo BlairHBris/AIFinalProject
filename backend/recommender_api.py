@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
+import numpy as np  # Required for safe_globals
 
 # =======================
 # 1. Download CSVs from Google Drive
@@ -107,7 +108,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = RecommenderNet(num_users, num_movies).to(device)
 
 # =======================
-# 5a. Train if model missing
+# 5a. Train or Load Model (PyTorch 2.6+ safe)
 # =======================
 if not os.path.exists(MODEL_FILE):
     print("Training PyTorch model...")
@@ -126,7 +127,7 @@ if not os.path.exists(MODEL_FILE):
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
-    for epoch in range(3):  # Increase for better accuracy
+    for epoch in range(3):  # Increase epochs for better accuracy
         total_loss = 0
         for u, m, r in loader:
             u, m, r = u.to(device), m.to(device), r.to(device)
@@ -138,15 +139,21 @@ if not os.path.exists(MODEL_FILE):
             total_loss += loss.item()
         print(f"Epoch {epoch+1}/3, Loss: {total_loss/len(loader):.4f}")
 
-    torch.save({"model_state_dict": model.state_dict(),
-                "user2idx": user2idx,
-                "movie2idx": movie2idx}, MODEL_FILE)
+    torch.save({
+        "model_state_dict": model.state_dict(),
+        "user2idx": user2idx,
+        "movie2idx": movie2idx
+    }, MODEL_FILE)
     print("Saved torch_recommender.pt")
 else:
-    checkpoint = torch.load(MODEL_FILE, map_location=device)
+    # Safe load for PyTorch 2.6+
+    with torch.serialization.safe_globals([np.core.multiarray.scalar, np.dtype]):
+        checkpoint = torch.load(MODEL_FILE, map_location=device)
+
     model.load_state_dict(checkpoint["model_state_dict"])
     user2idx = checkpoint["user2idx"]
     movie2idx = checkpoint["movie2idx"]
+    print("Checkpoint loaded safely.")
 
 model.eval()
 
