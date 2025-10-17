@@ -1,0 +1,24 @@
+services:
+  # === Backend Service (FastAPI) ===
+  - type: web
+    name: movie-recommender-backend
+    env: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn recommender_api:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12
+      - key: PORT
+        value: 8000
+    plan: free
+
+  # === Frontend Static Site ===
+  - type: static
+    name: movie-recommender-frontend
+    rootDir: frontend
+    buildCommand: "" # No build needed for plain HTML/CSS/JS
+    publishPath: frontend
+    envVars:
+      - key: API_BASE_URL
+        value: https://movie-recommender-backend.onrender.com
