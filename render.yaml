@@ -14,8 +14,9 @@ services:
     plan: free
 
   # === Frontend Static Site ===
-  - type: static
+  - type: web
     name: movie-recommender-frontend
+    env: static
     rootDir: frontend
     buildCommand: "" # No build needed for plain HTML/CSS/JS
     publishPath: frontend
