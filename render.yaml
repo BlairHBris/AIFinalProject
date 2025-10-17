@@ -19,7 +19,7 @@ services:
     env: static
     rootDir: frontend
     buildCommand: "" # No build needed for plain HTML/CSS/JS
-    publishPath: frontend
+    staticPublishPath: frontend
     envVars:
       - key: API_BASE_URL
         value: https://movie-recommender-backend.onrender.com
