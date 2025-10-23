@@ -191,28 +191,34 @@ async function sendFeedback(movieId, type) {
 // ===== Load History =====
 async function loadHistory() {
 	if (!currentUsername) return;
-
 	console.log("📖 Loading user history...");
-	const div = document.getElementById("history");
-	div.innerHTML = "<em>Loading history...</em>";
 	showSpinner(true);
-
 	try {
 		const res = await fetch(`${API_BASE_URL}/users/${currentUsername}/history`);
-		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		if (!res.ok) {
+			console.warn(
+				"⚠️ Could not load history (likely new user). Status:",
+				res.status
+			);
+			document.getElementById("history").innerHTML = "";
+			return;
+		}
 		const data = await res.json();
-
+		const div = document.getElementById("history");
 		div.innerHTML = "";
-		data.history.forEach((h) => {
-			const item = document.createElement("div");
-			item.className = "movie-card";
-			item.innerHTML = `<span>${h.title}</span> <em>${h.interaction}</em>`;
-			div.appendChild(item);
-		});
+		if (data.history.length === 0) {
+			div.innerHTML = "<em>No history yet.</em>";
+		} else {
+			data.history.forEach((h) => {
+				const item = document.createElement("div");
+				item.className = "movie-card";
+				item.innerHTML = `<span>${h.title}</span> <em>${h.interaction}</em>`;
+				div.appendChild(item);
+			});
+		}
 	} catch (e) {
-		console.error("❌ History load error:", e);
-		div.innerHTML = "<em>Failed to load history.</em>";
-		alert("Failed to load history. Check console for details.");
+		console.warn("⚠️ Failed to load history (likely new user):", e);
+		document.getElementById("history").innerHTML = "<em>No history yet.</em>";
 	} finally {
 		showSpinner(false);
 	}
