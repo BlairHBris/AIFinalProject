@@ -28,14 +28,19 @@ UPDATE_THRESHOLD = 10
 # =======================
 # 1. FastAPI setup
 # =======================
-app = FastAPI(title="Adaptive Movie Recommender API (Local/Render Optimized)")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://movie-recommender-frontend-nxw6.onrender.com",  # your frontend Render domain
+        "http://localhost:5500",  # optional: for local testing
+        "http://127.0.0.1:5500",
+        "http://localhost:3000"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # =======================
 # 2. Load local CSVs
