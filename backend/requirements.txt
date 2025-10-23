@@ -4,3 +4,4 @@ pandas
 torch
 requests
 python-multipart
+scikit-learn
