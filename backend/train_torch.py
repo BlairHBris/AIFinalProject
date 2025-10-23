@@ -1,23 +1,48 @@
-# train_torch_v5.py
+# train_torch.py
+"""
+Local training script. Run this locally (not on Render) to produce
+'torch_recommender.pt' and commit that .pt to the repo before deploying.
+
+Key points:
+- Uses float16 for precomputed content features to reduce size.
+- Limits tag features to TOP_TAGS (512 by default) to reduce dimensionality.
+- Saves a full checkpoint dict:
+    { "model_state_dict": ..., "user2idx": ..., "movie2idx": ..., "content_cols": ... }
+"""
+
 import os
 import pandas as pd
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from sklearn.feature_extraction.text import CountVectorizer
-import numpy as np
 
-# ==========================
-# 0. Config
-# ==========================
+# -----------------------
+# Config
+# -----------------------
 MOVIES_FILE = "movies.csv"
 RATINGS_FILE = "ratings.csv"
 TAGS_FILE = "tags.csv"
 MODEL_FILE = "torch_recommender.pt"
 
-# ==========================
-# 1. Load data
-# ==========================
+TOP_TAGS = 512          # reduce dimensionality (keeps top 512 tags)
+EMBEDDING_DIM = 32
+BATCH_SIZE = 512
+EPOCHS = 20
+LR = 1e-2
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# -----------------------
+# Sanity checks
+# -----------------------
+for f in (MOVIES_FILE, RATINGS_FILE, TAGS_FILE):
+    if not os.path.exists(f):
+        raise FileNotFoundError(f"Missing required file: {f}. Run locally where CSVs exist.")
+
+# -----------------------
+# Load & preprocess
+# -----------------------
 movies = pd.read_csv(MOVIES_FILE)
 ratings = pd.read_csv(RATINGS_FILE)
 tags = pd.read_csv(TAGS_FILE)
@@ -28,48 +53,46 @@ tags.columns = [c.strip().lower() for c in tags.columns]
 
 if "actors" not in movies.columns:
     movies["actors"] = ""
-movies["genres"] = movies.get("genres","").fillna("")
+movies["genres"] = movies.get("genres", "").fillna("")
 
-# ==========================
-# 2. Process genres
-# ==========================
+# genres one-hot
 unique_genres = set("|".join(movies["genres"]).split("|"))
 unique_genres = {g for g in unique_genres if g}
 for g in unique_genres:
     movies[g] = movies["genres"].apply(lambda x: 1 if g in x else 0).astype(np.float16)
 
-# ==========================
-# 3. Process top 512 tags
-# ==========================
-tags["tag"] = tags["tag"].fillna("").str.lower()
-top_tags = tags["tag"].value_counts().head(512).index.tolist()
+# top tags -> CountVectorizer or pivot whichever is more economical
+tags["tag"] = tags["tag"].fillna("").astype(str).str.lower()
+top_tags = tags["tag"].value_counts().head(TOP_TAGS).index.tolist()
 tags_subset = tags[tags["tag"].isin(top_tags)]
+
+# pivot to multi-hot matrix (dense): small memory because we limit TOP_TAGS and convert to float16
 tag_matrix = tags_subset.pivot_table(index="movieid", columns="tag", aggfunc="size", fill_value=0)
+tag_matrix = tag_matrix.reindex(columns=top_tags, fill_value=0).astype(np.float16)
 movies = movies.merge(tag_matrix, on="movieid", how="left").fillna(0)
 
+# final content columns (genres + top tags)
 content_cols = sorted(list(unique_genres)) + top_tags
 
-# ==========================
-# 4. Map users/movies
-# ==========================
+# -----------------------
+# User/movie mapping
+# -----------------------
 user_ids = ratings["userid"].unique()
 movie_ids = ratings["movieid"].unique()
-user2idx = {u:i for i,u in enumerate(user_ids)}
-movie2idx = {m:i for i,m in enumerate(movie_ids)}
+
+user2idx = {u: i for i, u in enumerate(user_ids)}
+movie2idx = {m: i for i, m in enumerate(movie_ids)}
 
 ratings["user_idx"] = ratings["userid"].map(user2idx)
 ratings["movie_idx"] = ratings["movieid"].map(movie2idx)
 
-num_users = len(user2idx)
-num_movies = len(movie2idx)
-
-# Precompute movie features tensor
-movie_features = movies.set_index("movieid").reindex(movie_ids)[content_cols].fillna(0)
+# precompute movie features aligned to movie_idx order, dtype float16
+movie_features = movies.set_index("movieid").reindex(movie_ids)[content_cols].fillna(0).astype(np.float16)
 movie_features_tensor = torch.tensor(movie_features.values, dtype=torch.float16)
 
-# ==========================
-# 5. Dataset
-# ==========================
+# -----------------------
+# Dataset
+# -----------------------
 class RatingsDataset(Dataset):
     def __init__(self, df, movie_feats):
         self.users = torch.tensor(df["user_idx"].values, dtype=torch.long)
@@ -81,59 +104,64 @@ class RatingsDataset(Dataset):
         return len(self.ratings)
 
     def __getitem__(self, idx):
-        return self.users[idx], self.movies[idx], self.movie_feats[self.movies[idx]], self.ratings[idx]
+        # convert movie_feats per-sample to float32 for compute stability
+        feats = self.movie_feats[self.movies[idx]].to(torch.float32)
+        return self.users[idx], self.movies[idx], feats, self.ratings[idx]
 
 dataset = RatingsDataset(ratings, movie_features_tensor)
-loader = DataLoader(dataset, batch_size=512, shuffle=True)
+loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
 
-# ==========================
-# 6. Model
-# ==========================
+# -----------------------
+# Model
+# -----------------------
 class RecommenderNet(nn.Module):
-    def __init__(self, num_users, num_movies, movie_feat_dim, embedding_dim=32):
+    def __init__(self, num_users, num_movies, movie_feat_dim, embedding_dim=EMBEDDING_DIM):
         super().__init__()
-        self.user_embed = nn.Embedding(num_users+1, embedding_dim, padding_idx=0)
-        self.movie_embed = nn.Embedding(num_movies+1, embedding_dim, padding_idx=0)
+        # +1 padding to allow unknown index mapping if needed
+        self.user_embed = nn.Embedding(num_users + 1, embedding_dim, padding_idx=0)
+        self.movie_embed = nn.Embedding(num_movies + 1, embedding_dim, padding_idx=0)
         self.fc = nn.Linear(embedding_dim + movie_feat_dim, 1)
 
     def forward(self, user_idx, movie_idx, movie_feats):
-        x = self.user_embed(user_idx) * self.movie_embed(movie_idx)
+        u = self.user_embed(user_idx)
+        m = self.movie_embed(movie_idx)
+        x = u * m
         x = torch.cat([x, movie_feats], dim=1)
         x = self.fc(x)
         return x.squeeze()
 
-model = RecommenderNet(num_users, num_movies, movie_feat_dim=len(content_cols), embedding_dim=32)
+model = RecommenderNet(len(user2idx), len(movie2idx), movie_feat_dim=len(content_cols)).to(DEVICE)
 
-# ==========================
-# 7. Training
-# ==========================
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model.to(device)
+# -----------------------
+# Train
+# -----------------------
 criterion = nn.MSELoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
-epochs = 15
+optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 
 model.train()
-for epoch in range(epochs):
-    total_loss = 0
+for epoch in range(EPOCHS):
+    total_loss = 0.0
     for u, m, mf, r in loader:
-        u, m, mf, r = u.to(device), m.to(device), mf.to(device), r.to(device)
+        u = u.to(DEVICE)
+        m = m.to(DEVICE)
+        mf = mf.to(DEVICE)  # already float32
+        r = r.to(DEVICE)
         optimizer.zero_grad()
         pred = model(u, m, mf)
         loss = criterion(pred, r)
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
-    print(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss/len(loader):.4f}")
+    print(f"Epoch {epoch+1}/{EPOCHS} - loss: {total_loss / len(loader):.4f}")
 
-# ==========================
-# 8. Save model
-# ==========================
-torch.save({
+# -----------------------
+# Save checkpoint (full dict)
+# -----------------------
+checkpoint = {
     "model_state_dict": model.state_dict(),
     "user2idx": user2idx,
     "movie2idx": movie2idx,
     "content_cols": content_cols
-}, MODEL_FILE)
-
-print(f"✅ Saved v5-compatible model to {MODEL_FILE}")
+}
+torch.save(checkpoint, MODEL_FILE)
+print(f"Saved checkpoint to {MODEL_FILE}")
