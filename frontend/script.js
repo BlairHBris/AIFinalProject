@@ -1,6 +1,6 @@
 const API_BASE_URL = window.location.hostname.includes("localhost")
 	? "http://127.0.0.1:8000"
-	: "https://movie-recommender-api.onrender.com";
+	: "https://movie-recommender-backend-a9wo.onrender.com/";
 let currentUsername = null;
 
 // ===== Define options =====
@@ -91,13 +91,13 @@ document.getElementById("loginBtn").addEventListener("click", async () => {
 	const mode = document.querySelector('input[name="userMode"]:checked').value;
 
 	if (mode === "new") {
-		await fetch(`${API_BASE}/users/new`, {
+		await fetch(`${API_BASE_URL}/users/new`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ name: currentUsername }),
 		});
 	} else {
-		const res = await fetch(`${API_BASE}/users/new`, {
+		const res = await fetch(`${API_BASE_URL}/users/new`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ name: currentUsername }),
@@ -131,7 +131,7 @@ document.getElementById("getRecsBtn").addEventListener("click", async () => {
 
 	const recType = type === "svd" ? "collab" : type; // Switch SVD -> collab
 
-	const res = await fetch(`${API_BASE}/recommend/${recType}`, {
+	const res = await fetch(`${API_BASE_URL}/recommend/${recType}`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
@@ -164,7 +164,7 @@ document.getElementById("getRecsBtn").addEventListener("click", async () => {
 async function sendFeedback(movieId, type) {
 	if (!currentUsername) return alert("Please log in first!");
 
-	await fetch(`${API_BASE}/feedback`, {
+	await fetch(`${API_BASE_URL}/feedback`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
@@ -182,7 +182,7 @@ async function sendFeedback(movieId, type) {
 async function loadHistory() {
 	if (!currentUsername) return;
 
-	const res = await fetch(`${API_BASE}/users/${currentUsername}/history`);
+	const res = await fetch(`${API_BASE_URL}/users/${currentUsername}/history`);
 	const data = await res.json();
 	const div = document.getElementById("history");
 	div.innerHTML = "";
