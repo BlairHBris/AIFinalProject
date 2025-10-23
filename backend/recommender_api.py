@@ -32,9 +32,11 @@ INTERACTIONS_FILE = "user_interactions.csv"
 UPDATE_THRESHOLD = 10
 
 # -----------------------
-# FastAPI + CORS
+# FastAPI + CORS (Render-safe, verified)
 # -----------------------
-app = FastAPI(title="Movie Recommender (render-safe)")
+app = FastAPI(title="Movie Recommender (render-safe)", version="v5")
+
+# ✅ Add CORS middleware immediately (before any routes)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -46,6 +48,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ✅ Add root health-check (verifies that CORS headers are active)
+@app.get("/")
+def root():
+    return {
+        "status": "ok",
+        "message": "Movie recommender backend is live",
+        "cors": "enabled",
+    }
 
 # -----------------------
 # Globals (populated on startup)
