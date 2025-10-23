@@ -7,10 +7,10 @@ let currentUsername = null;
 function showSpinner(show) {
 	const spinner = document.getElementById("spinner");
 	if (show) {
-		spinner.classList.add("show"); // fade in
+		spinner.classList.add("show");
+		spinner.style.display = "flex";
 	} else {
-		spinner.classList.remove("show"); // fade out
-		// optional: delay to fully hide after fade
+		spinner.classList.remove("show");
 		setTimeout(() => {
 			spinner.style.display = "none";
 		}, 300);
@@ -38,6 +38,7 @@ const ACTORS = [
 // ===== Initialize Page =====
 window.addEventListener("DOMContentLoaded", () => {
 	console.log("🖥 Page loaded");
+
 	const genreSelect = document.getElementById("genre-options");
 	GENRES.forEach((g) => {
 		const opt = document.createElement("option");
@@ -45,6 +46,7 @@ window.addEventListener("DOMContentLoaded", () => {
 		opt.textContent = g;
 		genreSelect.appendChild(opt);
 	});
+
 	const actorSelect = document.getElementById("actor-options");
 	ACTORS.forEach((a) => {
 		const opt = document.createElement("option");
@@ -52,6 +54,7 @@ window.addEventListener("DOMContentLoaded", () => {
 		opt.textContent = a;
 		actorSelect.appendChild(opt);
 	});
+
 	setupMultiSelect("genre-options", "genre-select-container");
 	setupMultiSelect("actor-options", "actor-select-container");
 
@@ -71,6 +74,7 @@ window.addEventListener("DOMContentLoaded", () => {
 function setupMultiSelect(selectId, containerId) {
 	const select = document.getElementById(selectId);
 	const display = document.querySelector(`#${containerId} .selected-display`);
+
 	function updateDisplay() {
 		const selected = Array.from(select.selectedOptions).map((opt) => opt.value);
 		display.innerHTML =
@@ -80,8 +84,10 @@ function setupMultiSelect(selectId, containerId) {
 				? "Select genres..."
 				: "Select actors...";
 	}
+
 	select.addEventListener("change", updateDisplay);
 	updateDisplay();
+
 	display.addEventListener("click", () => {
 		select.size = select.size === 5 ? 0 : 5;
 	});
@@ -93,17 +99,20 @@ document.getElementById("loginBtn").addEventListener("click", async () => {
 	if (!usernameInput) return alert("Enter a username!");
 	currentUsername = usernameInput.toLowerCase();
 	console.log(`👤 Logging in as ${currentUsername}`);
+
 	localStorage.setItem("username", currentUsername);
 	document.getElementById(
 		"user-info"
 	).textContent = `Welcome, ${currentUsername}!`;
 	document.getElementById("recommend-section").style.display = "block";
+
 	await loadHistory();
 });
 
 // ===== Get Recommendations =====
 document.getElementById("getRecsBtn").addEventListener("click", async () => {
 	if (!currentUsername) return alert("Please log in first!");
+
 	console.log("🎯 Requesting recommendations...");
 	const genres = Array.from(
 		document.querySelectorAll("#genre-options option:checked")
@@ -114,7 +123,10 @@ document.getElementById("getRecsBtn").addEventListener("click", async () => {
 	const type = document.getElementById("type").value;
 	const recType = type === "svd" ? "collab" : type;
 
+	const container = document.getElementById("recommendations");
+	container.innerHTML = "<em>Loading recommendations...</em>";
 	showSpinner(true);
+
 	try {
 		const res = await fetch(`${API_BASE_URL}/recommend/${recType}`, {
 			method: "POST",
@@ -126,22 +138,24 @@ document.getElementById("getRecsBtn").addEventListener("click", async () => {
 				top_n: 5,
 			}),
 		});
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 		const data = await res.json();
-		const container = document.getElementById("recommendations");
+
 		container.innerHTML = "";
 		data.recommendations.forEach((m) => {
 			const div = document.createElement("div");
 			div.className = "movie-card";
 			div.innerHTML = `<span>${m.title}</span>
-				<div>
-					<button onclick="sendFeedback('${m.movieId}','interested')">Interested</button>
-					<button onclick="sendFeedback('${m.movieId}','watched')">Watched</button>
-				</div>`;
+        <div>
+          <button onclick="sendFeedback('${m.movieId}', 'interested')">Interested</button>
+          <button onclick="sendFeedback('${m.movieId}', 'watched')">Watched</button>
+        </div>`;
 			container.appendChild(div);
 		});
 	} catch (e) {
 		console.error("❌ Error fetching recommendations:", e);
-		alert("Failed to get recommendations.");
+		container.innerHTML = "<em>Failed to load recommendations.</em>";
+		alert("Failed to get recommendations. Check console for details.");
 	} finally {
 		showSpinner(false);
 	}
@@ -150,10 +164,11 @@ document.getElementById("getRecsBtn").addEventListener("click", async () => {
 // ===== Send Feedback =====
 async function sendFeedback(movieId, type) {
 	if (!currentUsername) return alert("Please log in first!");
+
 	console.log(`✉️ Sending feedback: ${type} for movie ${movieId}`);
 	showSpinner(true);
 	try {
-		await fetch(`${API_BASE_URL}/feedback`, {
+		const res = await fetch(`${API_BASE_URL}/feedback`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
@@ -162,6 +177,7 @@ async function sendFeedback(movieId, type) {
 				interaction: type,
 			}),
 		});
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 		alert(`${type} saved for movie ${movieId}!`);
 		await loadHistory();
 	} catch (e) {
@@ -175,12 +191,17 @@ async function sendFeedback(movieId, type) {
 // ===== Load History =====
 async function loadHistory() {
 	if (!currentUsername) return;
+
 	console.log("📖 Loading user history...");
+	const div = document.getElementById("history");
+	div.innerHTML = "<em>Loading history...</em>";
 	showSpinner(true);
+
 	try {
 		const res = await fetch(`${API_BASE_URL}/users/${currentUsername}/history`);
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 		const data = await res.json();
-		const div = document.getElementById("history");
+
 		div.innerHTML = "";
 		data.history.forEach((h) => {
 			const item = document.createElement("div");
@@ -190,7 +211,8 @@ async function loadHistory() {
 		});
 	} catch (e) {
 		console.error("❌ History load error:", e);
-		alert("Failed to load history.");
+		div.innerHTML = "<em>Failed to load history.</em>";
+		alert("Failed to load history. Check console for details.");
 	} finally {
 		showSpinner(false);
 	}
