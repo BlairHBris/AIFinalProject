@@ -1,14 +1,13 @@
-# recommender_api.py
+# recommender_api.py (local training + render optimized + warmup)
 import os
 import threading
 import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import requests
 import numpy as np
 from sklearn.feature_extraction.text import CountVectorizer
 
@@ -19,45 +18,17 @@ MOVIES_FILE = "movies.csv"
 RATINGS_FILE = "ratings.csv"
 TAGS_FILE = "tags.csv"
 
-MOVIES_FILE_ID = "1MaQ2UMPcKaOlLAW1W9CJ_CUrf4stHxDB"
-RATINGS_FILE_ID = "1GYyvuhMTfYzz6ua8RkkuINILSsIiwLwe"
-TAGS_FILE_ID = "1XSEd3G5fFx5AF869QmoAYpjSTH_8Ztd8"
-
-MODEL_FILE = "torch_recommender.pt"       # committed model
-TMP_MODEL_FILE = "/tmp/torch_recommender.pt"  # ephemeral retrain
+MODEL_FILE = "torch_recommender.pt"
+TMP_MODEL_FILE = "/tmp/torch_recommender.pt"
 
 USERS_FILE = "users.csv"
 INTERACTIONS_FILE = "user_interactions.csv"
 UPDATE_THRESHOLD = 10
 
 # =======================
-# 1. Helpers: download from Google Drive
+# 1. FastAPI setup
 # =======================
-def download_from_gdrive(file_id: str, dest_path: str):
-    if os.path.exists(dest_path):
-        return
-    URL = "https://drive.google.com/uc?export=download"
-    session = requests.Session()
-    response = session.get(URL, params={"id": file_id}, stream=True)
-    token = None
-    for k, v in response.cookies.items():
-        if k.startswith("download_warning"):
-            token = v
-    if token:
-        response = session.get(URL, params={"id": file_id, "confirm": token}, stream=True)
-    with open(dest_path, "wb") as f:
-        for chunk in response.iter_content(chunk_size=32768):
-            if chunk:
-                f.write(chunk)
-    print(f"Downloaded {dest_path} from Google Drive.")
-
-download_from_gdrive(MOVIES_FILE_ID, MOVIES_FILE)
-download_from_gdrive(RATINGS_FILE_ID, RATINGS_FILE)
-
-# =======================
-# 2. FastAPI setup
-# =======================
-app = FastAPI(title="Adaptive Movie Recommender API (PyTorch)")
+app = FastAPI(title="Adaptive Movie Recommender API (Local/Render Optimized)")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -67,10 +38,14 @@ app.add_middleware(
 )
 
 # =======================
-# 3. Load CSVs and preprocess
+# 2. Load local CSVs
 # =======================
+if not os.path.exists(MOVIES_FILE) or not os.path.exists(RATINGS_FILE):
+    raise FileNotFoundError("Missing local CSV files: movies.csv or ratings.csv")
+
 movies = pd.read_csv(MOVIES_FILE)
 ratings = pd.read_csv(RATINGS_FILE)
+tags = pd.read_csv(TAGS_FILE) if os.path.exists(TAGS_FILE) else pd.DataFrame()
 
 movies.columns = [c.strip().lower() for c in movies.columns]
 ratings.columns = [c.strip().lower() for c in ratings.columns]
@@ -79,16 +54,13 @@ movies["genres"] = movies.get("genres", "").fillna("")
 if "actors" not in movies.columns:
     movies["actors"] = ""
 
-# genre one-hot
 unique_genres = set("|".join(movies["genres"]).split("|"))
 unique_genres = {g for g in unique_genres if g}
 for g in unique_genres:
     movies[g] = movies["genres"].apply(lambda x: 1 if g in x else 0)
 
-# tags
 tag_cols = []
-if os.path.exists(TAGS_FILE):
-    tags = pd.read_csv(TAGS_FILE)
+if not tags.empty:
     tags.columns = [c.strip().lower() for c in tags.columns]
     tags["tag"] = tags["tag"].fillna("").astype(str).str.lower()
     movie_tags = tags.groupby("movieid")["tag"].apply(lambda x: " ".join(x.unique())).reset_index()
@@ -104,7 +76,7 @@ movie_lookup = movies.set_index("movieid")["title"].to_dict()
 ratings_full = ratings.merge(movies[["movieid"] + content_cols], on="movieid", how="left")
 
 # =======================
-# 4. PyTorch model + dataset
+# 3. Model + Dataset
 # =======================
 class RecommenderNet(nn.Module):
     def __init__(self, num_users, num_movies, num_features, embedding_dim=50):
@@ -125,12 +97,10 @@ user_ids = ratings["userid"].unique()
 movie_ids = ratings["movieid"].unique()
 user2idx = {u: i for i, u in enumerate(user_ids)}
 movie2idx = {m: i for i, m in enumerate(movie_ids)}
-num_users = len(user2idx)
-num_movies = len(movie2idx)
-num_features = len(content_cols)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = RecommenderNet(num_users, num_movies, num_features).to(device)
+num_features = len(content_cols)
+model = RecommenderNet(len(user2idx), len(movie2idx), num_features).to(device)
 
 class RatingsDataset(Dataset):
     def __init__(self, df, feature_cols):
@@ -141,68 +111,50 @@ class RatingsDataset(Dataset):
         self.ratings = torch.tensor(self.df["rating"].values, dtype=torch.float32)
         self.features = torch.tensor(self.df[feature_cols].fillna(0).values, dtype=torch.float32)
 
-    def __len__(self):
-        return len(self.ratings)
-
-    def __getitem__(self, idx):
-        return self.users[idx], self.movies[idx], self.features[idx], self.ratings[idx]
+    def __len__(self): return len(self.ratings)
+    def __getitem__(self, idx): return self.users[idx], self.movies[idx], self.features[idx], self.ratings[idx]
 
 # =======================
-# 5. Load or train initial model
+# 4. Load model only (Render-safe)
 # =======================
-def train_initial_model(save_path=MODEL_FILE, epochs=3):
+def load_model():
+    """Loads pretrained model if available, otherwise a fresh one (no training on Render)."""
+    if os.path.exists(MODEL_FILE):
+        checkpoint = torch.load(MODEL_FILE, map_location=device)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        print(f"✅ Loaded pretrained model from {MODEL_FILE}")
+    else:
+        print("⚠️ Model file not found. Please train locally using train_torch.py and commit the .pt file.")
+    model.eval()
+
+# =======================
+# 5. Background retrain (Render-safe incremental updates)
+# =======================
+def background_retrain():
+    print("🔁 Running background retrain...")
+    df = pd.read_csv(INTERACTIONS_FILE)
+    if len(df) < UPDATE_THRESHOLD:
+        print("Not enough feedback yet for retrain.")
+        return
+    # lightweight fine-tune
     dataset = RatingsDataset(ratings_full, content_cols)
     loader = DataLoader(dataset, batch_size=512, shuffle=True)
     criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     model.train()
-    for epoch in range(epochs):
-        total_loss = 0.0
+    for epoch in range(1):
         for u, m, f, r in loader:
             u, m, f, r = u.to(device), m.to(device), f.to(device), r.to(device)
             optimizer.zero_grad()
-            pred = model(u, m, f)
-            loss = criterion(pred, r)
+            loss = criterion(model(u, m, f), r)
             loss.backward()
             optimizer.step()
-            total_loss += loss.item()
-        print(f"Initial train Epoch {epoch+1}/{epochs}, Loss: {total_loss/len(loader):.4f}")
-    torch.save({
-        "model_state_dict": model.state_dict(),
-        "user2idx": user2idx,
-        "movie2idx": movie2idx
-    }, save_path)
-    print(f"Saved initial model to {save_path}")
+    torch.save({"model_state_dict": model.state_dict()}, MODEL_FILE)
     model.eval()
-
-# Load checkpoint
-load_file = TMP_MODEL_FILE if os.path.exists(TMP_MODEL_FILE) else MODEL_FILE if os.path.exists(MODEL_FILE) else None
-if load_file:
-    try:
-        checkpoint = torch.load(load_file, map_location=device)
-        model.load_state_dict(checkpoint["model_state_dict"])
-        user2idx = checkpoint["user2idx"]
-        movie2idx = checkpoint["movie2idx"]
-        print(f"Loaded model checkpoint from {load_file}")
-    except Exception as e:
-        print("Failed to load checkpoint; training initial model. Error:", e)
-        train_initial_model()
-else:
-    print("No model checkpoint found; training initial model.")
-    train_initial_model()
-
-model.eval()
+    print("✅ Background retrain complete and model saved.")
 
 # =======================
-# 6. Ensure CSV files exist
-# =======================
-for f, cols in [(INTERACTIONS_FILE, ["user_id", "movie_id", "interaction"]),
-                (USERS_FILE, ["user_id", "username"])]:
-    if not os.path.exists(f):
-        pd.DataFrame(columns=cols).to_csv(f, index=False)
-
-# =======================
-# 7. Pydantic models
+# 6. User and Feedback
 # =======================
 class RecommendRequest(BaseModel):
     username: str
@@ -215,234 +167,79 @@ class FeedbackRequest(BaseModel):
     movie_id: int
     interaction: str
 
-# =======================
-# 8. User management
-# =======================
 def get_or_create_user(username: str) -> int:
     username = username.strip().lower()
-    users_df = pd.read_csv(USERS_FILE)
+    users_df = pd.read_csv(USERS_FILE) if os.path.exists(USERS_FILE) else pd.DataFrame(columns=["user_id", "username"])
     if username in users_df["username"].values:
-        return int(users_df[users_df["username"] == username]["user_id"].values[0])
+        return int(users_df.loc[users_df["username"] == username, "user_id"].iloc[0])
     new_id = int(users_df["user_id"].max() + 1) if not users_df.empty else 1
     users_df = pd.concat([users_df, pd.DataFrame([{"user_id": new_id, "username": username}])], ignore_index=True)
     users_df.to_csv(USERS_FILE, index=False)
     return new_id
 
-def get_user_rated_movies_appuser(user_id: int):
-    if os.path.exists(INTERACTIONS_FILE):
-        df = pd.read_csv(INTERACTIONS_FILE)
-        return set(df[df["user_id"] == user_id]["movie_id"])
-    return set()
-
 # =======================
-# 9. Recommendation logic
+# 7. Recommender logic (fast)
 # =======================
 def predict_rating(user_id, movie_id):
     if user_id not in user2idx or movie_id not in movie2idx:
         return 3.5
     u = torch.tensor([user2idx[user_id]], dtype=torch.long, device=device)
     m = torch.tensor([movie2idx[movie_id]], dtype=torch.long, device=device)
-    try:
-        feat_vals = movies.loc[movies["movieid"] == movie_id, content_cols].values[0]
-    except Exception:
-        feat_vals = [0.0] * len(content_cols)
+    feat_vals = movies.loc[movies["movieid"] == movie_id, content_cols].values[0]
     f = torch.tensor([feat_vals], dtype=torch.float32, device=device)
     with torch.no_grad():
         return float(model(u, m, f).item())
 
-def recommend_collab(user_id, top_n=10):
-    rated = get_user_rated_movies_appuser(user_id)
+def recommend_fast(user_id, liked_genres=[], liked_actors=[], top_n=10):
+    rated = set()
+    if os.path.exists(INTERACTIONS_FILE):
+        df = pd.read_csv(INTERACTIONS_FILE)
+        rated = set(df[df["user_id"] == user_id]["movie_id"])
     candidates = [mid for mid in movie_lookup.keys() if mid not in rated]
+    if len(candidates) > 500:
+        candidates = np.random.choice(candidates, 500, replace=False)
     preds = [(mid, predict_rating(user_id, mid)) for mid in candidates]
     top_preds = sorted(preds, key=lambda x: x[1], reverse=True)[:top_n]
     return [{"movieId": int(mid), "title": movie_lookup.get(mid, "Unknown")} for mid, _ in top_preds]
 
-def recommend_content(user_id, liked_genres=[], liked_actors=[], top_n=10):
-    rated = get_user_rated_movies_appuser(user_id)
-    candidates = movies[~movies["movieid"].isin(rated)].copy()
-    if liked_genres:
-        existing = [g for g in liked_genres if g in candidates.columns]
-        if existing:
-            candidates = candidates[candidates[existing].sum(axis=1) > 0]
-    if liked_actors:
-        candidates = candidates[candidates["actors"].apply(lambda x: any(a.lower() in x.lower() for a in liked_actors) if isinstance(x, str) else False)]
-    if candidates.empty:
-        return []
-    sampled = candidates.sample(min(top_n, len(candidates)))
-    return [{"movieId": int(row.movieid), "title": row.title} for _, row in sampled.iterrows()]
-
-def recommend_hybrid(user_id, liked_genres=[], liked_actors=[], top_n=10):
-    rated = get_user_rated_movies_appuser(user_id)
-    candidates_df = movies[~movies["movieid"].isin(rated)].copy()
-    if liked_genres:
-        existing = [g for g in liked_genres if g in candidates_df.columns]
-        if existing:
-            candidates_df = candidates_df[candidates_df[existing].sum(axis=1) > 0]
-    if liked_actors:
-        candidates_df = candidates_df[candidates_df["actors"].apply(lambda x: any(a.lower() in x.lower() for a in liked_actors) if isinstance(x, str) else False)]
-    if candidates_df.empty:
-        return []
-
-    preds = []
-    # use model predictions for candidates if possible
-    for mid in candidates_df["movieid"]:
-        preds.append((mid, predict_rating(user_id, mid)))
-    top_preds = sorted(preds, key=lambda x: x[1], reverse=True)[:top_n]
-    return [{"movieId": int(mid), "title": movie_lookup.get(mid, "Unknown")} for mid, _ in top_preds]
-
 # =======================
-# 10. Background retraining
+# 8. API Routes
 # =======================
-retrain_lock = threading.Lock()
+@app.on_event("startup")
+def startup_event():
+    load_model()  # ⚙️ Always load, never train on Render
 
-def retrain_if_needed():
-    try:
-        df = pd.read_csv(INTERACTIONS_FILE)
-    except Exception:
-        return
-    if len(df) >= UPDATE_THRESHOLD and len(df) % UPDATE_THRESHOLD == 0:
-        t = threading.Thread(target=_background_retrain, args=(df.copy(),), daemon=True)
-        t.start()
-
-def _background_retrain(interactions_df: pd.DataFrame):
-    global model, user2idx, movie2idx  # must be declared before any assignment/use
-
-    # avoid concurrent retrain threads
-    if not retrain_lock.acquire(blocking=False):
-        print("Retrain already running — skipping this trigger.")
-        return
-
-    try:
-        print("Starting background retraining...")
-
-        # Combine Movielens ratings + app interactions
-        base_ratings = pd.read_csv(RATINGS_FILE)
-        interactions = interactions_df.copy()
-
-        # Map interactions to ratings
-        def map_interaction_to_rating(x):
-            s = str(x).lower()
-            if "like" in s or "love" in s or "favorite" in s:
-                return 4.0
-            if "view" in s or "watch" in s:
-                return 3.5
-            if "skip" in s:
-                return 2.0
-            return 3.5
-
-        interactions["rating"] = interactions["interaction"].apply(map_interaction_to_rating)
-
-        # Offset app user IDs to avoid collision with Movielens users
-        MAX_ML_USER = int(base_ratings["userid"].max()) + 1 if not base_ratings.empty else 100000
-        interactions["userid"] = interactions["user_id"].astype(int) + MAX_ML_USER
-        interactions = interactions.rename(columns={"movie_id": "movieid"})[["userid", "movieid", "rating"]]
-
-        # Combine datasets
-        combined = pd.concat([base_ratings[["userid", "movieid", "rating"]], interactions], ignore_index=True)
-        combined_full = combined.merge(movies[["movieid"] + content_cols], on="movieid", how="left").fillna(0)
-
-        # Rebuild user/movie mappings
-        new_user_ids = combined_full["userid"].unique()
-        new_movie_ids = combined_full["movieid"].unique()
-        new_user2idx = {u: i for i, u in enumerate(new_user_ids)}
-        new_movie2idx = {m: i for i, m in enumerate(new_movie_ids)}
-
-        # Create new model with updated embedding sizes
-        embedding_dim = model.user_embed.embedding_dim if hasattr(model, "user_embed") else 50
-        new_model = RecommenderNet(len(new_user2idx), len(new_movie2idx), len(content_cols), embedding_dim=embedding_dim).to(device)
-
-        # Map combined dataframe to indices
-        combined_full["user_idx"] = combined_full["userid"].map(new_user2idx)
-        combined_full["movie_idx"] = combined_full["movieid"].map(new_movie2idx)
-
-        # Dataset class for retraining
-        class RebuildDataset(Dataset):
-            def __init__(self, df, feature_cols):
-                self.users = torch.tensor(df["user_idx"].values, dtype=torch.long)
-                self.movies = torch.tensor(df["movie_idx"].values, dtype=torch.long)
-                self.features = torch.tensor(df[feature_cols].values, dtype=torch.float32)
-                self.ratings = torch.tensor(df["rating"].values, dtype=torch.float32)
-
-            def __len__(self):
-                return len(self.ratings)
-
-            def __getitem__(self, i):
-                return self.users[i], self.movies[i], self.features[i], self.ratings[i]
-
-        ds = RebuildDataset(combined_full, content_cols)
-        loader = DataLoader(ds, batch_size=512, shuffle=True)
-
-        criterion = nn.MSELoss()
-        optimizer = torch.optim.Adam(new_model.parameters(), lr=0.01)
-
-        # Quick retraining
-        epochs = 2
-        new_model.train()
-        for epoch in range(epochs):
-            total_loss = 0.0
-            for u, m, f, r in loader:
-                u, m, f, r = u.to(device), m.to(device), f.to(device), r.to(device)
-                optimizer.zero_grad()
-                pred = new_model(u, m, f)
-                loss = criterion(pred, r)
-                loss.backward()
-                optimizer.step()
-                total_loss += loss.item()
-            print(f"Retrain epoch {epoch+1}/{epochs}, loss {total_loss/len(loader):.4f}")
-
-        # Save updated model
-        torch.save({
-            "model_state_dict": new_model.state_dict(),
-            "user2idx": new_user2idx,
-            "movie2idx": new_movie2idx
-        }, MODEL_FILE)
-
-        # Atomically update global references
-        model = new_model
-        user2idx = new_user2idx
-        movie2idx = new_movie2idx
-        model.eval()
-        print("Retraining complete. New model saved to", MODEL_FILE)
-
-    except Exception as e:
-        print("Error during retraining:", e)
-
-    finally:
-        retrain_lock.release()
-
-# =======================
-# 11. API routes
-# =======================
 @app.post("/recommend/{rec_type}")
 def recommend(rec_type: str, req: RecommendRequest):
     user_id = get_or_create_user(req.username)
-    if rec_type == "collab":
-        recs = recommend_collab(user_id, req.top_n)
-    elif rec_type == "content":
-        recs = recommend_content(user_id, req.liked_genres, req.liked_actors, req.top_n)
-    elif rec_type == "hybrid":
-        recs = recommend_hybrid(user_id, req.liked_genres, req.liked_actors, req.top_n)
-    else:
-        raise HTTPException(status_code=400, detail="Invalid recommendation type")
+    recs = recommend_fast(user_id, req.liked_genres, req.liked_actors, req.top_n)
     return {"recommendations": recs}
 
 @app.post("/feedback")
 def feedback(req: FeedbackRequest):
     user_id = get_or_create_user(req.username)
-    df = pd.read_csv(INTERACTIONS_FILE)
+    df = pd.read_csv(INTERACTIONS_FILE) if os.path.exists(INTERACTIONS_FILE) else pd.DataFrame(columns=["user_id", "movie_id", "interaction"])
     new_row = {"user_id": int(user_id), "movie_id": int(req.movie_id), "interaction": req.interaction}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     df.to_csv(INTERACTIONS_FILE, index=False)
-    retrain_if_needed()
-    return {"status": "success", "message": "Feedback recorded. Retraining will run in background if threshold met."}
+    if len(df) % UPDATE_THRESHOLD == 0:
+        threading.Thread(target=background_retrain).start()
+    return {"status": "success", "message": "Feedback saved."}
 
 @app.get("/users/{username}/history")
 def get_user_history(username: str):
     user_id = get_or_create_user(username)
-    if os.path.exists(INTERACTIONS_FILE):
-        df = pd.read_csv(INTERACTIONS_FILE)
-    else:
-        df = pd.DataFrame(columns=["user_id", "movie_id", "interaction"])
+    df = pd.read_csv(INTERACTIONS_FILE) if os.path.exists(INTERACTIONS_FILE) else pd.DataFrame(columns=["user_id", "movie_id", "interaction"])
     user_rows = df[df["user_id"] == user_id]
     return {"history": [{"movieId": int(mid), "title": movie_lookup.get(mid, "Unknown"), "interaction": inter}
                         for mid, inter in zip(user_rows["movie_id"], user_rows["interaction"])]}
+
+# ⚡ Warmup Route
+@app.get("/warmup")
+def warmup_model():
+    """Preloads model weights and ensures everything is ready."""
+    load_model()
+    dummy_user = list(user2idx.keys())[0]
+    dummy_movie = list(movie2idx.keys())[0]
+    _ = predict_rating(dummy_user, dummy_movie)
+    return {"status": "ready", "device": str(device)}

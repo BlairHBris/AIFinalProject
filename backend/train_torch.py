@@ -146,7 +146,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
 criterion = nn.MSELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
-epochs = 5
+epochs = 20
 
 model.train()
 for epoch in range(epochs):
