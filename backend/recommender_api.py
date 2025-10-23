@@ -1,4 +1,4 @@
-# recommender_api_render_safe.py
+# recommender_api_render_safe_v4.py
 import os
 import threading
 import pandas as pd
@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import numpy as np
+from sklearn.feature_extraction.text import CountVectorizer
 
 # =======================
 # 0. Config
@@ -38,60 +39,91 @@ app.add_middleware(
 )
 
 # =======================
-# 2. Load movies only (minimal)
+# 2. Global variables
 # =======================
-movies = pd.read_csv(MOVIES_FILE)
-movies.columns = [c.strip().lower() for c in movies.columns]
-movies["genres"] = movies.get("genres", "").fillna("")
-if "actors" not in movies.columns:
-    movies["actors"] = ""
-
-unique_genres = set("|".join(movies["genres"]).split("|"))
-unique_genres = {g for g in unique_genres if g}
-for g in unique_genres:
-    movies[g] = movies["genres"].apply(lambda x: 1 if g in x else 0)
-
-tag_cols = []
-if os.path.exists(TAGS_FILE):
-    tags = pd.read_csv(TAGS_FILE)
-    tags.columns = [c.strip().lower() for c in tags.columns]
-    tags["tag"] = tags["tag"].fillna("").astype(str).str.lower()
-    movie_tags = tags.groupby("movieid")["tag"].apply(lambda x: " ".join(x.unique())).reset_index()
-    from sklearn.feature_extraction.text import CountVectorizer
-    vectorizer = CountVectorizer(max_features=1000, token_pattern=r"(?u)\b\w+\b")
-    tag_matrix = vectorizer.fit_transform(movie_tags["tag"].fillna("")).toarray().astype(np.float16)
-    tag_cols = vectorizer.get_feature_names_out()
-    tags_df = pd.DataFrame(tag_matrix, columns=tag_cols)
-    tags_df["movieid"] = movie_tags["movieid"]
-    movies = movies.merge(tags_df, on="movieid", how="left").fillna(0).astype(np.float16)
-
-content_cols = sorted(list(unique_genres)) + list(tag_cols)
-movie_lookup = movies.set_index("movieid")["title"].to_dict()
-
-# =======================
-# 3. Model + dataset placeholders
-# =======================
-class RecommenderNet(nn.Module):
-    def __init__(self, num_users, num_movies, num_features, embedding_dim=50):
-        super().__init__()
-        self.user_embed = nn.Embedding(num_users, embedding_dim)
-        self.movie_embed = nn.Embedding(num_movies, embedding_dim)
-        self.fc = nn.Linear(embedding_dim + num_features, 1)
-
-    def forward(self, user_idx, movie_idx, features):
-        u_emb = self.user_embed(user_idx)
-        m_emb = self.movie_embed(movie_idx)
-        x = u_emb * m_emb
-        x = torch.cat([x, features], dim=1)
-        x = self.fc(x)
-        return x.squeeze()
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = None
 user2idx, movie2idx = {}, {}
 
+movies = None
+movie_lookup = None
+content_cols = None
+movies_features = None
+movieid2row = None
+
 # =======================
-# 4. Load model only
+# 3. Load movies + tags once
+# =======================
+def load_movies_and_tags():
+    global movies, movie_lookup, content_cols, movies_features, movieid2row
+
+    movies = pd.read_csv(MOVIES_FILE)
+    movies.columns = [c.strip().lower() for c in movies.columns]
+    movies["genres"] = movies.get("genres", "").fillna("")
+    if "actors" not in movies.columns:
+        movies["actors"] = ""
+
+    # Genres one-hot
+    unique_genres = set("|".join(movies["genres"]).split("|"))
+    unique_genres = {g for g in unique_genres if g}
+    for g in unique_genres:
+        movies[g] = movies["genres"].apply(lambda x: 1 if g in x else 0).astype(np.float16)
+
+    # Tags features
+    tag_cols = []
+    if os.path.exists(TAGS_FILE):
+        tags = pd.read_csv(TAGS_FILE)
+        tags.columns = [c.strip().lower() for c in tags.columns]
+        tags["tag"] = tags["tag"].fillna("").astype(str).str.lower()
+        movie_tags = tags.groupby("movieid")["tag"].apply(lambda x: " ".join(x.unique())).reset_index()
+        vectorizer = CountVectorizer(max_features=512, token_pattern=r"(?u)\b\w+\b")
+        tag_matrix = vectorizer.fit_transform(movie_tags["tag"].fillna("")).toarray().astype(np.float16)
+        tag_cols = vectorizer.get_feature_names_out()
+        tags_df = pd.DataFrame(tag_matrix, columns=tag_cols, dtype=np.float16)
+        tags_df["movieid"] = movie_tags["movieid"].astype(np.int32)
+        movies = movies.merge(tags_df, on="movieid", how="left").fillna(0)
+
+    content_cols = sorted(list(unique_genres)) + list(tag_cols)
+    movie_lookup = movies.set_index("movieid")["title"].to_dict()
+
+    # Precompute movie features matrix
+    movies_features = movies.set_index("movieid")[content_cols].astype(np.float16)
+    movieid2row = {mid: i for i, mid in enumerate(movies_features.index)}
+
+# =======================
+# 4. Model + Dataset
+# =======================
+class RecommenderNet(nn.Module):
+    def __init__(self, num_users, num_movies, num_features, embedding_dim=32):
+        super().__init__()
+        self.user_embed = nn.Embedding(num_users+1, embedding_dim, padding_idx=0)
+        self.movie_embed = nn.Embedding(num_movies+1, embedding_dim, padding_idx=0)
+        self.fc = nn.Linear(embedding_dim + num_features, 1)
+
+    def forward(self, user_idx, movie_idx, features):
+        with torch.autocast(device_type='cuda', dtype=torch.float16 if device.type=='cuda' else torch.float32):
+            u_emb = self.user_embed(user_idx)
+            m_emb = self.movie_embed(movie_idx)
+            x = u_emb * m_emb
+            x = torch.cat([x, features], dim=1)
+            x = self.fc(x)
+        return x.squeeze()
+
+# Dataset remains the same
+class RatingsDataset(Dataset):
+    def __init__(self, df, feature_cols, u2i, m2i):
+        self.df = df.copy()
+        self.df = self.df[self.df["userid"].isin(u2i) & self.df["movieid"].isin(m2i)].reset_index(drop=True)
+        self.users = torch.tensor(self.df["userid"].map(u2i).values, dtype=torch.long)
+        self.movies = torch.tensor(self.df["movieid"].map(m2i).values, dtype=torch.long)
+        self.ratings = torch.tensor(self.df["rating"].values, dtype=torch.float32)
+        self.features = torch.tensor(self.df[feature_cols].fillna(0).values, dtype=torch.float32)
+
+    def __len__(self): return len(self.ratings)
+    def __getitem__(self, idx): return self.users[idx], self.movies[idx], self.features[idx], self.ratings[idx]
+
+# =======================
+# 5. Load pretrained model
 # =======================
 def load_model():
     global model, user2idx, movie2idx
@@ -105,43 +137,6 @@ def load_model():
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
     print(f"✅ Loaded pretrained model from {MODEL_FILE}")
-
-# =======================
-# 5. Background retrain (Render-safe)
-# =======================
-class RatingsDataset(Dataset):
-    def __init__(self, df, feature_cols, u2i, m2i):
-        self.df = df.copy()
-        self.df = self.df[self.df["userid"].isin(u2i) & self.df["movieid"].isin(m2i)].reset_index(drop=True)
-        self.users = torch.tensor(self.df["userid"].map(u2i).values, dtype=torch.long)
-        self.movies = torch.tensor(self.df["movieid"].map(m2i).values, dtype=torch.long)
-        self.ratings = torch.tensor(self.df["rating"].values, dtype=torch.float32)
-        self.features = torch.tensor(self.df[feature_cols].fillna(0).values, dtype=torch.float32)
-
-    def __len__(self): return len(self.ratings)
-    def __getitem__(self, idx): return self.users[idx], self.movies[idx], self.features[idx], self.ratings[idx]
-
-def background_retrain():
-    if not os.path.exists(INTERACTIONS_FILE):
-        return
-    df = pd.read_csv(INTERACTIONS_FILE)
-    if len(df) < UPDATE_THRESHOLD: return
-    print("🔁 Running background retrain...")
-    ratings_full = pd.read_csv(RATINGS_FILE).merge(movies[["movieid"] + content_cols], on="movieid", how="left").astype(np.float16)
-    dataset = RatingsDataset(ratings_full, content_cols, user2idx, movie2idx)
-    loader = DataLoader(dataset, batch_size=512, shuffle=True)
-    criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    model.train()
-    for u, m, f, r in loader:
-        u, m, f, r = u.to(device), m.to(device), f.to(device), r.to(device)
-        optimizer.zero_grad()
-        loss = criterion(model(u, m, f), r)
-        loss.backward()
-        optimizer.step()
-    torch.save({"model_state_dict": model.state_dict(), "user2idx": user2idx, "movie2idx": movie2idx}, MODEL_FILE)
-    model.eval()
-    print("✅ Background retrain complete and model saved.")
 
 # =======================
 # 6. API logic
@@ -168,16 +163,20 @@ def get_or_create_user(username: str) -> int:
     return new_id
 
 def predict_rating(user_id, movie_id):
-    if user_id not in user2idx or movie_id not in movie2idx:
-        return 3.5
-    u = torch.tensor([user2idx[user_id]], dtype=torch.long, device=device)
-    m = torch.tensor([movie2idx[movie_id]], dtype=torch.long, device=device)
-    feat_vals = movies.loc[movies["movieid"]==movie_id, content_cols].values[0]
-    f = torch.tensor([feat_vals], dtype=torch.float32, device=device)
+    u_idx = user2idx.get(user_id, 0)
+    m_idx = movie2idx.get(movie_id, 0)
+    u = torch.tensor([u_idx], dtype=torch.long, device=device)
+    m = torch.tensor([m_idx], dtype=torch.long, device=device)
+    # Use precomputed movie features
+    if movie_id in movieid2row:
+        feat_vals = movies_features.iloc[movieid2row[movie_id]].values[None, :]
+    else:
+        feat_vals = np.zeros((1, len(content_cols)), dtype=np.float16)
+    f = torch.tensor(feat_vals, dtype=torch.float16 if device.type=='cuda' else torch.float32, device=device)
     with torch.no_grad():
         return float(model(u, m, f).item())
 
-def recommend_fast(user_id, liked_genres=[], liked_actors=[], top_n=10):
+def recommend_fast(user_id, liked_genres=[], liked_actors=[], top_n=10, batch_size=50):
     rated = set()
     if os.path.exists(INTERACTIONS_FILE):
         df = pd.read_csv(INTERACTIONS_FILE)
@@ -185,7 +184,20 @@ def recommend_fast(user_id, liked_genres=[], liked_actors=[], top_n=10):
     candidates = [mid for mid in movie_lookup.keys() if mid not in rated]
     if len(candidates) > 500:
         candidates = np.random.choice(candidates, 500, replace=False)
-    preds = [(mid, predict_rating(user_id, mid)) for mid in candidates]
+
+    preds = []
+    model.eval()
+    u_idx = user2idx.get(user_id, 0)
+    with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.float16 if device.type=='cuda' else torch.float32):
+        for i in range(0, len(candidates), batch_size):
+            batch = candidates[i:i+batch_size]
+            u = torch.tensor([u_idx]*len(batch), dtype=torch.long, device=device)
+            m = torch.tensor([movie2idx.get(mid,0) for mid in batch], dtype=torch.long, device=device)
+            feat_vals = np.array([movies_features.iloc[movieid2row.get(mid,0)].values for mid in batch], dtype=np.float16)
+            f = torch.tensor(feat_vals, dtype=torch.float16 if device.type=='cuda' else torch.float32, device=device)
+            batch_preds = model(u, m, f)
+            preds.extend(zip(batch, batch_preds.cpu().numpy()))
+
     top_preds = sorted(preds, key=lambda x: x[1], reverse=True)[:top_n]
     return [{"movieId": int(mid), "title": movie_lookup.get(mid,"Unknown")} for mid,_ in top_preds]
 
@@ -194,6 +206,7 @@ def recommend_fast(user_id, liked_genres=[], liked_actors=[], top_n=10):
 # =======================
 @app.on_event("startup")
 def startup_event():
+    load_movies_and_tags()
     load_model()
 
 @app.post("/recommend/{rec_type}")
@@ -222,7 +235,6 @@ def get_user_history(username: str):
 
 @app.get("/warmup")
 def warmup_model():
-    load_model()
     if not user2idx or not movie2idx: return {"status":"ready","device": str(device)}
     dummy_user = list(user2idx.keys())[0]
     dummy_movie = list(movie2idx.keys())[0]
