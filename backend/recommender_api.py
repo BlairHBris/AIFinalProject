@@ -35,7 +35,7 @@ app = FastAPI(title="Movie Recommender (Render-safe)", version="v6")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
