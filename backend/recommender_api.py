@@ -305,14 +305,21 @@ def retrain_if_needed():
         t.start()
 
 def _background_retrain(interactions_df: pd.DataFrame):
+    global model, user2idx, movie2idx  # must be declared before any assignment/use
+
+    # avoid concurrent retrain threads
     if not retrain_lock.acquire(blocking=False):
         print("Retrain already running — skipping this trigger.")
         return
+
     try:
         print("Starting background retraining...")
+
+        # Combine Movielens ratings + app interactions
         base_ratings = pd.read_csv(RATINGS_FILE)
         interactions = interactions_df.copy()
 
+        # Map interactions to ratings
         def map_interaction_to_rating(x):
             s = str(x).lower()
             if "like" in s or "love" in s or "favorite" in s:
@@ -324,68 +331,82 @@ def _background_retrain(interactions_df: pd.DataFrame):
             return 3.5
 
         interactions["rating"] = interactions["interaction"].apply(map_interaction_to_rating)
+
+        # Offset app user IDs to avoid collision with Movielens users
         MAX_ML_USER = int(base_ratings["userid"].max()) + 1 if not base_ratings.empty else 100000
         interactions["userid"] = interactions["user_id"].astype(int) + MAX_ML_USER
-        interactions = interactions.rename(columns={"movie_id": "movieid", "userid": "userid"})[["userid", "movieid", "rating"]]
+        interactions = interactions.rename(columns={"movie_id": "movieid"})[["userid", "movieid", "rating"]]
 
+        # Combine datasets
         combined = pd.concat([base_ratings[["userid", "movieid", "rating"]], interactions], ignore_index=True)
         combined_full = combined.merge(movies[["movieid"] + content_cols], on="movieid", how="left").fillna(0)
 
+        # Rebuild user/movie mappings
         new_user_ids = combined_full["userid"].unique()
         new_movie_ids = combined_full["movieid"].unique()
         new_user2idx = {u: i for i, u in enumerate(new_user_ids)}
         new_movie2idx = {m: i for i, m in enumerate(new_movie_ids)}
 
+        # Create new model with updated embedding sizes
         embedding_dim = model.user_embed.embedding_dim if hasattr(model, "user_embed") else 50
         new_model = RecommenderNet(len(new_user2idx), len(new_movie2idx), len(content_cols), embedding_dim=embedding_dim).to(device)
 
+        # Map combined dataframe to indices
         combined_full["user_idx"] = combined_full["userid"].map(new_user2idx)
         combined_full["movie_idx"] = combined_full["movieid"].map(new_movie2idx)
 
+        # Dataset class for retraining
         class RebuildDataset(Dataset):
             def __init__(self, df, feature_cols):
                 self.users = torch.tensor(df["user_idx"].values, dtype=torch.long)
                 self.movies = torch.tensor(df["movie_idx"].values, dtype=torch.long)
                 self.features = torch.tensor(df[feature_cols].values, dtype=torch.float32)
                 self.ratings = torch.tensor(df["rating"].values, dtype=torch.float32)
+
             def __len__(self):
                 return len(self.ratings)
+
             def __getitem__(self, i):
                 return self.users[i], self.movies[i], self.features[i], self.ratings[i]
 
         ds = RebuildDataset(combined_full, content_cols)
         loader = DataLoader(ds, batch_size=512, shuffle=True)
-        criterion = nn.MSELoss()
-        opt = torch.optim.Adam(new_model.parameters(), lr=0.01)
 
-        new_model.train()
+        criterion = nn.MSELoss()
+        optimizer = torch.optim.Adam(new_model.parameters(), lr=0.01)
+
+        # Quick retraining
         epochs = 2
+        new_model.train()
         for epoch in range(epochs):
             total_loss = 0.0
             for u, m, f, r in loader:
                 u, m, f, r = u.to(device), m.to(device), f.to(device), r.to(device)
-                opt.zero_grad()
+                optimizer.zero_grad()
                 pred = new_model(u, m, f)
                 loss = criterion(pred, r)
                 loss.backward()
-                opt.step()
+                optimizer.step()
                 total_loss += loss.item()
             print(f"Retrain epoch {epoch+1}/{epochs}, loss {total_loss/len(loader):.4f}")
 
+        # Save updated model
         torch.save({
             "model_state_dict": new_model.state_dict(),
             "user2idx": new_user2idx,
             "movie2idx": new_movie2idx
-        }, TMP_MODEL_FILE)
+        }, MODEL_FILE)
 
-        global model, user2idx, movie2idx
+        # Atomically update global references
         model = new_model
         user2idx = new_user2idx
         movie2idx = new_movie2idx
         model.eval()
-        print("Retraining complete.")
+        print("Retraining complete. New model saved to", MODEL_FILE)
+
     except Exception as e:
         print("Error during retraining:", e)
+
     finally:
         retrain_lock.release()
 
