@@ -1,9 +1,8 @@
-# recommender_api.py
 """
-Render-safe API with full PyTorch recommender integration.
-- Loads checkpoint (torch_recommender.pt) on startup.
-- Uses CORS to allow frontend requests from Render and localhost.
-- Handles feedback and user history.
+Movie Recommender API (Render-Optimized)
+- PyTorch model integration
+- Clean CORS setup (no credential errors)
+- Graceful handling of new users with empty history
 """
 
 import os
@@ -12,7 +11,7 @@ import pandas as pd
 import numpy as np
 import torch
 import torch.nn as nn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -30,19 +29,15 @@ UPDATE_THRESHOLD = 10
 # -----------------------
 # FastAPI + CORS
 # -----------------------
-app = FastAPI(title="Movie Recommender (Render-safe)", version="v6")
+app = FastAPI(title="Movie Recommender (Render-safe)", version="v7")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://movie-recommender-frontend-nxw6.onrender.com",
-        "http://localhost:3000"
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],          # ✅ Allow all origins (fix Render proxy issues)
+    allow_credentials=False,      # ✅ Prevent CORS credential mismatch
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 @app.get("/")
 def root():
@@ -83,19 +78,23 @@ class RecommenderNet(nn.Module):
 # Utilities
 # -----------------------
 def _load_movies_and_features():
+    """Load movies and build feature vectors."""
     global movies, movie_lookup, content_cols, movies_features, movieid2row
     if not os.path.exists(MOVIES_FILE):
         raise FileNotFoundError("movies.csv not found.")
+
     movies = pd.read_csv(MOVIES_FILE)
     movies.columns = [c.strip().lower() for c in movies.columns]
     movies["genres"] = movies.get("genres", "").fillna("")
     if "actors" not in movies.columns:
         movies["actors"] = ""
 
+    # Genre encoding
     unique_genres = {g for g in "|".join(movies["genres"]).split("|") if g}
     for g in unique_genres:
         movies[g] = movies["genres"].apply(lambda x: 1 if g in x else 0).astype(np.float16)
 
+    # Tag-based features
     tag_cols = []
     if os.path.exists(TAGS_FILE):
         tags = pd.read_csv(TAGS_FILE)
@@ -114,14 +113,17 @@ def _load_movies_and_features():
     movie_lookup = movies.set_index("movieid")["title"].to_dict()
     movies_features = movies.set_index("movieid")[content_cols].astype(np.float16)
     movieid2row = {int(mid): i for i, mid in enumerate(movies_features.index)}
+
     return movies, movie_lookup, content_cols, movies_features, movieid2row
 
 def load_model_checkpoint():
+    """Load trained model from disk."""
     global model, user2idx, movie2idx, content_cols, movies, movie_lookup, movies_features, movieid2row
     movies, movie_lookup, content_cols, movies_features, movieid2row = _load_movies_and_features()
     if not os.path.exists(MODEL_FILE):
         print("⚠️ Model checkpoint not found.")
         return
+
     chk = torch.load(MODEL_FILE, map_location=device, weights_only=False)
     if "model_state_dict" in chk and "user2idx" in chk and "movie2idx" in chk:
         user2idx.update(chk["user2idx"])
@@ -138,12 +140,14 @@ def predict_batch(user_idx_int, movie_id_batch):
     m_idxs = [movie2idx.get(int(mid), 0) for mid in movie_id_batch]
     u = torch.tensor([u_idx]*len(m_idxs), dtype=torch.long, device=device)
     m = torch.tensor(m_idxs, dtype=torch.long, device=device)
+
     feat_rows = []
     for mid in movie_id_batch:
         if int(mid) in movieid2row:
             feat_rows.append(movies_features.iloc[movieid2row[int(mid)]].values)
         else:
             feat_rows.append(np.zeros((len(content_cols),), dtype=np.float16))
+
     f = torch.tensor(np.stack(feat_rows).astype(np.float32), dtype=torch.float32, device=device)
     with torch.no_grad():
         preds = model(u, m, f)
@@ -154,15 +158,18 @@ def recommend_for_user(user_id, top_n=10, candidate_limit=500, batch_size=64):
     seen = set()
     if os.path.exists(INTERACTIONS_FILE):
         df = pd.read_csv(INTERACTIONS_FILE)
-        seen = set(df[df["user_id"]==int(user_id)]["movie_id"].astype(int))
+        seen = set(df[df["user_id"] == int(user_id)]["movie_id"].astype(int))
+
     candidates = [mid for mid in movie_lookup.keys() if mid not in seen]
     if len(candidates) > candidate_limit:
         candidates = list(np.random.choice(candidates, candidate_limit, replace=False))
+
     preds = []
     for i in range(0, len(candidates), batch_size):
         batch = candidates[i:i+batch_size]
         scores = predict_batch(u_idx, batch)
         preds.extend(zip(batch, scores))
+
     top_preds = sorted(preds, key=lambda x: x[1], reverse=True)[:top_n]
     return [{"movieId": int(mid), "title": movie_lookup.get(int(mid), "Unknown")} for mid, _ in top_preds]
 
@@ -189,15 +196,16 @@ def get_or_create_user(username: str) -> int:
         users_df = pd.read_csv(USERS_FILE)
     else:
         users_df = pd.DataFrame(columns=["user_id", "username"])
+
     if username in users_df["username"].values:
-        return int(users_df.loc[users_df["username"]==username,"user_id"].iloc[0])
-    new_id = int(users_df["user_id"].max()+1) if not users_df.empty else 1
+        return int(users_df.loc[users_df["username"] == username, "user_id"].iloc[0])
+
+    new_id = int(users_df["user_id"].max() + 1) if not users_df.empty else 1
     users_df = pd.concat([users_df, pd.DataFrame([{"user_id": new_id, "username": username}])], ignore_index=True)
     users_df.to_csv(USERS_FILE, index=False)
     return new_id
 
 def background_retrain():
-    # placeholder for lightweight retrain logic
     print("🔄 Background retrain triggered (not implemented).")
 
 # -----------------------
@@ -205,10 +213,12 @@ def background_retrain():
 # -----------------------
 @app.on_event("startup")
 def startup_event():
-    try: _load_movies_and_features()
-    except Exception as e: print("Failed to load movies/features:", e)
-    try: load_model_checkpoint()
-    except Exception as e: print("Failed to load model checkpoint:", e)
+    try:
+        _load_movies_and_features()
+        load_model_checkpoint()
+        print("✅ Startup: model and data ready.")
+    except Exception as e:
+        print(f"❌ Startup error: {e}")
 
 # -----------------------
 # API routes
@@ -222,24 +232,44 @@ def recommend(rec_type: str, req: RecommendRequest):
 @app.post("/feedback")
 def feedback(req: FeedbackRequest):
     user_id = get_or_create_user(req.username)
-    df = pd.read_csv(INTERACTIONS_FILE) if os.path.exists(INTERACTIONS_FILE) else pd.DataFrame(columns=["user_id","movie_id","interaction"])
+    df = pd.read_csv(INTERACTIONS_FILE) if os.path.exists(INTERACTIONS_FILE) else pd.DataFrame(columns=["user_id", "movie_id", "interaction"])
     new_row = {"user_id": int(user_id), "movie_id": int(req.movie_id), "interaction": req.interaction}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     df.to_csv(INTERACTIONS_FILE, index=False)
+
     if len(df) % UPDATE_THRESHOLD == 0:
         threading.Thread(target=background_retrain, daemon=True).start()
-    return {"status":"success","message":"Feedback saved."}
+
+    return {"status": "success", "message": "Feedback saved."}
 
 @app.get("/users/{username}/history")
 def get_user_history(username: str):
+    """Return user's history, but gracefully handle empty users."""
     user_id = get_or_create_user(username)
-    df = pd.read_csv(INTERACTIONS_FILE) if os.path.exists(INTERACTIONS_FILE) else pd.DataFrame(columns=["user_id","movie_id","interaction"])
-    user_rows = df[df["user_id"]==user_id]
-    return {"history":[{"movieId": int(mid), "title": movie_lookup.get(int(mid),"Unknown"), "interaction": inter} for mid, inter in zip(user_rows["movie_id"], user_rows["interaction"])]}
+    if not os.path.exists(INTERACTIONS_FILE):
+        return {"history": []}
+
+    df = pd.read_csv(INTERACTIONS_FILE)
+    user_rows = df[df["user_id"] == user_id]
+    if user_rows.empty:
+        return {"history": []}
+
+    history = [
+        {
+            "movieId": int(mid),
+            "title": movie_lookup.get(int(mid), "Unknown"),
+            "interaction": inter
+        }
+        for mid, inter in zip(user_rows["movie_id"], user_rows["interaction"])
+    ]
+    return {"history": history}
 
 @app.get("/warmup")
 def warmup():
+    """Ensure model is loaded before first request."""
     if model is None:
-        try: load_model_checkpoint()
-        except Exception as e: return {"status":"error","detail":str(e)}
-    return {"status":"ready","device": str(device)}
+        try:
+            load_model_checkpoint()
+        except Exception as e:
+            return {"status": "error", "detail": str(e)}
+    return {"status": "ready", "device": str(device)}
