@@ -28,6 +28,7 @@ UPDATE_THRESHOLD = 10
 # =======================
 # 1. FastAPI setup
 # =======================
+app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
