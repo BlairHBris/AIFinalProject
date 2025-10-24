@@ -1,5 +1,5 @@
 """
-Movie Recommender API (Final Hybrid Version)
+Movie Recommender API (Final Hybrid Version - ACTORLESS)
 - PyTorch model integration
 - Supports Hybrid, Collaborative, and Content-Based predictions.
 - 'liked_movies' are now integrated into the user's content profile.
@@ -13,7 +13,7 @@ import pandas as pd
 import numpy as np
 import torch
 import torch.nn as nn
-from fastapi import FastAPI, HTTPException # <--- FIX 1: HTTPException imported
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any
@@ -29,7 +29,7 @@ USERS_FILE = os.path.join(BASE_DIR, "users.csv")
 INTERACTIONS_FILE = os.path.join(BASE_DIR, "user_interactions.csv")
 MODEL_FILE = os.path.join(BASE_DIR, "torch_recommender.pt")
 UPDATE_THRESHOLD = 10
-TOP_ACTORS_COUNT = 20
+# TOP_ACTORS_COUNT removed
 
 FRONTEND_URLS = [
     "http://localhost:3000",
@@ -69,10 +69,10 @@ movie_lookup = {}
 title_to_movieid = {}
 movieid2row = {}
 file_lock = threading.Lock()
-top_actors_cache: List[str] = []
+# top_actors_cache removed
 
 # -----------------------
-# PyTorch Model
+# PyTorch Model (No change needed here)
 # -----------------------
 class RecommenderNet(nn.Module):
     def __init__(self, num_users, num_movies, num_features, embedding_dim=32):
@@ -125,8 +125,7 @@ def load_data():
     tag_matrix = tag_matrix.reindex(columns=top_tags, fill_value=0).astype(np.float32)
     movies_df = movies_df.merge(tag_matrix, on="movieid", how="left").fillna(0)
 
-    if "actors" not in movies_df.columns:
-        movies_df["actors"] = ""
+    # Removed the check for/addition of "actors" column
 
     content_cols[:] = sorted(list(unique_genres)) + top_tags
     movie_lookup.update(movies_df.set_index("movieid")["title"].to_dict())
@@ -147,7 +146,9 @@ def load_model_checkpoint():
         return
 
     try:
-        chk = torch.load(MODEL_FILE, map_location=device)
+        # FIX for PyTorch 2.0+ security issue with NumPy serialization
+        chk = torch.load(MODEL_FILE, map_location=device, weights_only=False) 
+        
         user2idx.update(chk.get("user2idx", {}))
         movie2idx.update(chk.get("movie2idx", {}))
         num_features = len(content_cols)
@@ -159,23 +160,10 @@ def load_model_checkpoint():
         print(f"❌ Error loading model: {e}")
         model = None
 
-def load_top_actors():
-    global top_actors_cache
-    if movies_df is None:
-        load_data()
-    
-    if movies_df is None:
-        print("⚠️ Cannot load actors: movies_df is None.")
-        return
-        
-    all_actors = movies_df["actors"].dropna().str.split(",").explode().str.strip()
-    if not all_actors.empty:
-        top_actors_cache[:] = all_actors.value_counts().head(TOP_ACTORS_COUNT).index.tolist()
-        print(f"✅ Cached top {len(top_actors_cache)} actors")
-    else:
-        print("⚠️ No actors data found.")
+# load_top_actors function removed entirely
 
 def get_or_create_user(username: str) -> int:
+    # ... (function remains the same)
     username = username.strip().lower()
     with file_lock:
         if os.path.exists(USERS_FILE):
@@ -192,6 +180,7 @@ def get_or_create_user(username: str) -> int:
         return new_id
 
 def get_content_vector_from_titles(liked_movies_titles: List[str]) -> np.ndarray:
+    # ... (function remains the same)
     if movies_features is None or not liked_movies_titles:
         return np.zeros((len(content_cols),), dtype=np.float32)
 
@@ -206,6 +195,7 @@ def get_content_vector_from_titles(liked_movies_titles: List[str]) -> np.ndarray
     return np.mean(np.stack(liked_features), axis=0).astype(np.float32)
 
 def predict_batch(user_idx_int: int, movie_id_batch: List[int], user_content_features: np.ndarray = None, mode: str = 'hybrid') -> np.ndarray:
+    # ... (function remains the same)
     if model is None or movies_features is None:
         return np.zeros(len(movie_id_batch))
 
@@ -230,7 +220,9 @@ def predict_batch(user_idx_int: int, movie_id_batch: List[int], user_content_fea
         preds = model(u, m, f)
     return preds.cpu().numpy()
 
-def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = [], liked_actors: List[str] = [], liked_movies: List[str] = [], rec_type: str = "hybrid") -> List[Dict[str, Any]]:
+def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = [], liked_movies: List[str] = [], rec_type: str = "hybrid") -> List[Dict[str, Any]]:
+    """Generates recommendations based on the selected mode and filters."""
+    # liked_actors removed from parameters
     if movies_df is None or model is None:
         return []
 
@@ -250,10 +242,8 @@ def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = 
                     if g in candidates_df.columns:
                         genre_mask &= (candidates_df[g] == 1)
                 candidates_df = candidates_df[genre_mask]
-
-            if liked_actors:
-                for a in liked_actors:
-                    candidates_df = candidates_df[candidates_df.get("actors", "").str.lower().str.contains(a.lower(), na=False)]
+            
+            # Removed the if liked_actors block
 
         candidates = candidates_df["movieid"].tolist()
         if not candidates:
@@ -293,7 +283,7 @@ def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = 
 class RecommendRequest(BaseModel):
     username: str
     liked_genres: List[str] = []
-    liked_actors: List[str] = []
+    # liked_actors removed
     liked_movies: List[str] = []
     top_n: int = 5
 
@@ -309,12 +299,14 @@ class FeedbackRequest(BaseModel):
 def recommend_route(rec_type: str, req: RecommendRequest):
     user_id = get_or_create_user(req.username)
     recs = recommend_for_user(user_id, top_n=req.top_n, liked_genres=req.liked_genres,
-                              liked_actors=req.liked_actors, liked_movies=req.liked_movies,
+                              # liked_actors removed
+                              liked_movies=req.liked_movies,
                               rec_type=rec_type)
     return {"recommendations": recs}
 
 @app.post("/feedback")
 def feedback_route(req: FeedbackRequest):
+    # ... (function remains the same)
     user_id = get_or_create_user(req.username)
     with file_lock:
         if os.path.exists(INTERACTIONS_FILE):
@@ -329,6 +321,7 @@ def feedback_route(req: FeedbackRequest):
 
 @app.get("/users/{username}/history")
 def get_history(username: str):
+    # ... (function remains the same)
     user_id = get_or_create_user(username)
     history = []
 
@@ -354,6 +347,7 @@ def get_history(username: str):
 
 @app.get("/warmup")
 def warmup():
+    # ... (function remains the same)
     if movies_df is None: load_data()
     if model is None: load_model_checkpoint()
     return {"status": "ready", "device": str(device)}
@@ -362,7 +356,7 @@ def warmup():
 def startup_event():
     load_data()
     load_model_checkpoint()
-    load_top_actors()
+    # load_top_actors removed
     print("✅ Startup complete")
 
 # -----------------------
@@ -370,33 +364,21 @@ def startup_event():
 # -----------------------
 @app.get("/genres")
 def get_genres():
-    # Ensure data is fully loaded, including tags_df and content_cols
+    # ... (function remains the same)
     if movies_df is None:
         load_data()
         
-    # Check if essential dependencies were loaded successfully
     if movies_df is None or tags_df is None:
-        # 503 Service Unavailable: Data not ready
         raise HTTPException(status_code=503, detail="Server data not yet available.")
         
-    # Logic to filter out tags from the content columns to get only genres
     genres = sorted([c for c in content_cols if c not in tags_df.columns])
     return genres
 
-@app.get("/actors")
-def get_actors(top_n: int = TOP_ACTORS_COUNT):
-    # Ensure actors cache is loaded
-    if not top_actors_cache:
-        load_top_actors()
-        
-    if not top_actors_cache:
-        raise HTTPException(status_code=503, detail="Actor data not available.")
-        
-    return top_actors_cache[:top_n]
+# Removed @app.get("/actors") entirely
 
 @app.get("/movies")
 def get_top_movies():
-    # Ensure all data needed for rating calculation is loaded
+    # ... (function remains the same)
     if movies_df is None or ratings_df is None:
         load_data()
         

@@ -1,7 +1,5 @@
 fastapi
 uvicorn[standard]
 pandas
+numpy
 torch
-requests
-python-multipart
-scikit-learn

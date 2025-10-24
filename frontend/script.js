@@ -56,9 +56,9 @@ logoutButton.addEventListener("click", () => {
 
 // ------------------- FILTER OPTIONS -------------------
 async function loadFilters() {
-	// These functions now call the backend helper routes
+	// Only loads Genres and Movies now
 	await loadOptions("genre-options", "genres", "alpha");
-	await loadOptions("actor-options", "actors", "alpha");
+	// Removed await loadOptions("actor-options", "actors", "alpha");
 	await loadOptions("movie-options", "movies", "rating");
 }
 
@@ -67,7 +67,7 @@ async function loadOptions(selectId, endpoint, sortType) {
 	select.innerHTML = "";
 	try {
 		const res = await fetch(`${API_BASE_URL}/${endpoint}`);
-		// Handle the HTTP 503 error case from the robust backend fix
+
 		if (!res.ok) {
 			const errorDetail = await res
 				.json()
@@ -79,7 +79,6 @@ async function loadOptions(selectId, endpoint, sortType) {
 
 		let data = await res.json();
 
-		// Data sorting (retained from original logic)
 		if (sortType === "alpha") data.sort((a, b) => a.localeCompare(b));
 		else if (sortType === "rating") data = data.slice(0, 25);
 
@@ -96,21 +95,19 @@ async function loadOptions(selectId, endpoint, sortType) {
 	}
 }
 
-// NOTE: enableSelectSearch, enableClearButton, and their calls are removed
-
 // ------------------- GET RECOMMENDATIONS -------------------
 document.getElementById("getRecsBtn").addEventListener("click", async () => {
 	if (!currentUser) return alert("Please log in first");
 
 	const type = document.getElementById("type").value;
 	const genres = getSelectedValues("genre-options");
-	const actors = getSelectedValues("actor-options");
+	// const actors = getSelectedValues("actor-options"); <-- Removed
 	const movies = getSelectedValues("movie-options");
 
 	const payload = {
 		username: currentUser,
 		liked_genres: genres,
-		liked_actors: actors,
+		// liked_actors: actors, <-- Removed
 		liked_movies: movies,
 		top_n: 10,
 	};
@@ -136,8 +133,9 @@ document.getElementById("getRecsBtn").addEventListener("click", async () => {
 	}
 });
 
-// ------------------- DISPLAY RECOMMENDATIONS -------------------
+// ------------------- DISPLAY RECOMMENDATIONS (Remaining functions are unchanged) -------------------
 function displayRecommendations(recs) {
+	// ... (rest of the displayRecommendations function is unchanged)
 	recommendationsDiv.innerHTML = "";
 	if (!recs.length) {
 		recommendationsDiv.innerHTML = "<p>No recommendations found.</p>";
@@ -191,6 +189,7 @@ function displayRecommendations(recs) {
 
 // ------------------- LOAD HISTORY -------------------
 async function loadHistory() {
+	// ... (rest of the loadHistory function is unchanged)
 	historyDiv.innerHTML = "";
 	if (!currentUser) return;
 
@@ -212,6 +211,7 @@ async function loadHistory() {
 
 // ------------------- DISPLAY HISTORY -------------------
 function displayHistory(history) {
+	// ... (rest of the displayHistory function is unchanged)
 	historyDiv.innerHTML = "";
 	if (!history || history.length === 0) {
 		historyDiv.innerHTML = "<p>No history yet.</p>";
@@ -232,6 +232,7 @@ function displayHistory(history) {
 
 // ------------------- LOCAL HISTORY UPDATE -------------------
 function updateHistoryLocal(movie, interaction) {
+	// ... (rest of the updateHistoryLocal function is unchanged)
 	const existing = Array.from(historyDiv.querySelectorAll(".movie-card")).find(
 		(div) => div.querySelector("span").textContent.includes(movie.title)
 	);
@@ -259,6 +260,7 @@ function updateHistoryLocal(movie, interaction) {
 
 // ------------------- UTIL -------------------
 function getSelectedValues(selectId) {
+	// ... (rest of the getSelectedValues function is unchanged)
 	return Array.from(document.getElementById(selectId).selectedOptions).map(
 		(opt) => opt.value
 	);
