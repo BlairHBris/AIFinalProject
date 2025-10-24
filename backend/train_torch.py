@@ -4,8 +4,8 @@ Local training script. Produces 'torch_recommender.pt' for backend.
 
 Key points:
 - Uses ratings + tags + genres for hybrid recommendation.
-- Stores content features (genres + top 512 tags) for backend use.
-- Saves full checkpoint:
+- **Genres: Top 15 most frequent, capitalized** (matches final API feature set).
+- Saves full checkpoint required by FastAPI: 
     { "model_state_dict": ..., "user2idx": ..., "movie2idx": ..., "content_cols": ... }
 """
 
@@ -25,6 +25,7 @@ TAGS_FILE = "tags.csv"
 MODEL_FILE = "torch_recommender.pt"
 
 TOP_TAGS = 512
+TOP_GENRES = 15 # <-- NEW CONSTANT for consistency
 EMBEDDING_DIM = 32
 BATCH_SIZE = 512
 EPOCHS = 20
@@ -49,14 +50,26 @@ movies.columns = [c.strip().lower() for c in movies.columns]
 ratings.columns = [c.strip().lower() for c in ratings.columns]
 tags.columns = [c.strip().lower() for c in tags.columns]
 
-if "actors" not in movies.columns:
-    movies["actors"] = ""
-movies["genres"] = movies.get("genres", "").fillna("")
+# Ensure 'genres' column is processed for feature engineering
+movies["genres"] = movies.get("genres", "").fillna("") 
 
-# genres one-hot
-unique_genres = {g for g in "|".join(movies["genres"]).split("|") if g}
-for g in unique_genres:
-    movies[g] = movies["genres"].apply(lambda x: 1 if g in x else 0).astype(np.float16)
+# --- UPDATED GENRE PROCESSING: Top 15, Capitalized ---
+# 1. Standardize and count frequency
+all_genres = movies["genres"].str.split("|").explode().str.upper().dropna()
+genre_counts = all_genres.value_counts()
+
+# 2. Select top N genres
+top_genres = genre_counts.head(TOP_GENRES).index.tolist()
+unique_genres = set(top_genres)
+
+# 3. One-hot encode only the top genres
+for g in top_genres:
+    # Match the API's capitalization and column naming
+    movies[g] = movies["genres"].apply(
+        lambda x: 1 if g in x.upper() else 0
+    ).astype(np.float16)
+# --- END UPDATED GENRE PROCESSING ---
+
 
 # top tags (limit to 512)
 tags["tag"] = tags["tag"].fillna("").astype(str).str.lower()
@@ -84,6 +97,7 @@ ratings["user_idx"] = ratings["userid"].map(user2idx)
 ratings["movie_idx"] = ratings["movieid"].map(movie2idx)
 
 # precompute movie features aligned to movie_idx order
+# Ensure indexing only uses columns present after feature creation
 movie_features = movies.set_index("movieid").reindex(movie_ids)[content_cols].fillna(0).astype(np.float16)
 movie_features_tensor = torch.tensor(movie_features.values, dtype=torch.float16)
 
@@ -101,7 +115,8 @@ class RatingsDataset(Dataset):
         return len(self.ratings)
 
     def __getitem__(self, idx):
-        feats = self.movie_feats[self.movies[idx]].to(torch.float32)
+        # Keeps main tensor in float16 for memory, converts just the batch slice to float32 for training stability
+        feats = self.movie_feats[self.movies[idx]].to(torch.float32) 
         return self.users[idx], self.movies[idx], feats, self.ratings[idx]
 
 dataset = RatingsDataset(ratings, movie_features_tensor)

@@ -1,10 +1,9 @@
 """
-Movie Recommender API (Final Hybrid Version - ACTORLESS)
-- PyTorch model integration
-- Supports Hybrid, Collaborative, and Content-Based predictions.
-- 'liked_movies' are now integrated into the user's content profile.
-- Thread-safe CSV handling via threading.Lock.
-- Data files expected in the same folder as this script.
+Movie Recommender API (Final Hybrid Version)
+- Actor functionality removed.
+- Genres standardized (top 15, capitalized).
+- Top Movies ranked by Weighted Rating (Bayesian Average).
+- PyTorch model loading fixed (weights_only=False).
 """
 
 import os
@@ -29,7 +28,7 @@ USERS_FILE = os.path.join(BASE_DIR, "users.csv")
 INTERACTIONS_FILE = os.path.join(BASE_DIR, "user_interactions.csv")
 MODEL_FILE = os.path.join(BASE_DIR, "torch_recommender.pt")
 UPDATE_THRESHOLD = 10
-# TOP_ACTORS_COUNT removed
+TOP_GENRE_COUNT = 15 # New constant for genre reduction
 
 FRONTEND_URLS = [
     "http://localhost:3000",
@@ -72,7 +71,7 @@ file_lock = threading.Lock()
 # top_actors_cache removed
 
 # -----------------------
-# PyTorch Model (No change needed here)
+# PyTorch Model
 # -----------------------
 class RecommenderNet(nn.Module):
     def __init__(self, num_users, num_movies, num_features, embedding_dim=32):
@@ -110,11 +109,22 @@ def load_data():
     ratings_df.columns = [c.strip().lower() for c in ratings_df.columns]
     tags_df.columns = [c.strip().lower() for c in tags_df.columns]
 
-    # Process genres
+    # --- Process Genres (Standardization and Reduction) ---
     movies_df["genres"] = movies_df.get("genres", "").fillna("")
-    unique_genres = {g for g in "|".join(movies_df["genres"]).split("|") if g}
-    for g in unique_genres:
-        movies_df[g] = movies_df["genres"].apply(lambda x: 1 if g in x else 0).astype(np.float32)
+    
+    # 1. Standardize to uppercase and count frequency
+    all_genres = movies_df["genres"].str.split("|").explode().str.upper().dropna()
+    genre_counts = all_genres.value_counts()
+    
+    # 2. Select top N genres
+    top_genres = genre_counts.head(TOP_GENRE_COUNT).index.tolist()
+    unique_genres = set(top_genres)
+    
+    # 3. One-hot encode only the top genres
+    for g in top_genres:
+        movies_df[g] = movies_df["genres"].apply(
+            lambda x: 1 if g in x.upper() else 0
+        ).astype(np.float32)
 
     # Process tags (top 512)
     tags_df["tag"] = tags_df["tag"].astype(str).str.lower()
@@ -125,7 +135,7 @@ def load_data():
     tag_matrix = tag_matrix.reindex(columns=top_tags, fill_value=0).astype(np.float32)
     movies_df = movies_df.merge(tag_matrix, on="movieid", how="left").fillna(0)
 
-    # Removed the check for/addition of "actors" column
+    # Removed actor processing
 
     content_cols[:] = sorted(list(unique_genres)) + top_tags
     movie_lookup.update(movies_df.set_index("movieid")["title"].to_dict())
@@ -146,7 +156,7 @@ def load_model_checkpoint():
         return
 
     try:
-        # FIX for PyTorch 2.0+ security issue with NumPy serialization
+        # FIX: Set weights_only=False to allow loading model components that include NumPy globals.
         chk = torch.load(MODEL_FILE, map_location=device, weights_only=False) 
         
         user2idx.update(chk.get("user2idx", {}))
@@ -160,10 +170,9 @@ def load_model_checkpoint():
         print(f"❌ Error loading model: {e}")
         model = None
 
-# load_top_actors function removed entirely
+# load_top_actors removed
 
 def get_or_create_user(username: str) -> int:
-    # ... (function remains the same)
     username = username.strip().lower()
     with file_lock:
         if os.path.exists(USERS_FILE):
@@ -180,7 +189,6 @@ def get_or_create_user(username: str) -> int:
         return new_id
 
 def get_content_vector_from_titles(liked_movies_titles: List[str]) -> np.ndarray:
-    # ... (function remains the same)
     if movies_features is None or not liked_movies_titles:
         return np.zeros((len(content_cols),), dtype=np.float32)
 
@@ -195,7 +203,6 @@ def get_content_vector_from_titles(liked_movies_titles: List[str]) -> np.ndarray
     return np.mean(np.stack(liked_features), axis=0).astype(np.float32)
 
 def predict_batch(user_idx_int: int, movie_id_batch: List[int], user_content_features: np.ndarray = None, mode: str = 'hybrid') -> np.ndarray:
-    # ... (function remains the same)
     if model is None or movies_features is None:
         return np.zeros(len(movie_id_batch))
 
@@ -221,24 +228,31 @@ def predict_batch(user_idx_int: int, movie_id_batch: List[int], user_content_fea
     return preds.cpu().numpy()
 
 def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = [], liked_movies: List[str] = [], rec_type: str = "hybrid") -> List[Dict[str, Any]]:
-    """Generates recommendations based on the selected mode and filters."""
     # liked_actors removed from parameters
     if movies_df is None or model is None:
         return []
 
     with file_lock:
-        if os.path.exists(INTERACTIONS_FILE):
-            interactions_df = pd.read_csv(INTERACTIONS_FILE)
-            seen = set(interactions_df[interactions_df["user_id"]==user_id]["movie_id"].astype(int))
-        else:
-            seen = set()
+        seen = set()
+        # Initialize DataFrame safely to avoid EmptyDataError if file exists but is empty
+        interactions_df = pd.DataFrame(columns=["user_id", "movie_id", "interaction"]) 
 
+        if os.path.exists(INTERACTIONS_FILE) and os.path.getsize(INTERACTIONS_FILE) > 0:
+            try:
+                interactions_df = pd.read_csv(INTERACTIONS_FILE)
+            except pd.errors.EmptyDataError:
+                print("⚠️ INTERACTIONS_FILE exists but is empty.")
+            except Exception as e:
+                print(f"❌ Error reading INTERACTIONS_FILE: {e}")
+        
+        seen = set(interactions_df[interactions_df["user_id"]==user_id]["movie_id"].astype(int))
         candidates_df = movies_df[~movies_df["movieid"].isin(seen)].copy()
 
         if rec_type != 'collab':
             if liked_genres:
                 genre_mask = pd.Series(True, index=candidates_df.index)
                 for g in liked_genres:
+                    # Check against the uppercase genres
                     if g in candidates_df.columns:
                         genre_mask &= (candidates_df[g] == 1)
                 candidates_df = candidates_df[genre_mask]
@@ -268,11 +282,15 @@ def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = 
             movie_ratings = ratings_df[ratings_df["movieid"] == mid]["rating"]
             avg_rating = movie_ratings.mean() if not movie_ratings.empty else None
             tags = tags_df[tags_df["movieid"] == mid]["tag"].value_counts().head(3).index.tolist()
+            
+            # Use original genre string for output presentation
+            genres_output = row["genres"].split("|") 
+            
             enriched.append({
                 "movieId": int(mid),
                 "title": movie_lookup.get(mid, "Unknown"),
                 "avg_rating": avg_rating,
-                "genres": row["genres"].split("|"),
+                "genres": genres_output,
                 "top_tags": tags
             })
         return enriched
@@ -282,7 +300,7 @@ def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = 
 # -----------------------
 class RecommendRequest(BaseModel):
     username: str
-    liked_genres: List[str] = []
+    liked_genres: List[str] = [] # These are now capitalized strings
     # liked_actors removed
     liked_movies: List[str] = []
     top_n: int = 5
@@ -299,14 +317,12 @@ class FeedbackRequest(BaseModel):
 def recommend_route(rec_type: str, req: RecommendRequest):
     user_id = get_or_create_user(req.username)
     recs = recommend_for_user(user_id, top_n=req.top_n, liked_genres=req.liked_genres,
-                              # liked_actors removed
                               liked_movies=req.liked_movies,
                               rec_type=rec_type)
     return {"recommendations": recs}
 
 @app.post("/feedback")
 def feedback_route(req: FeedbackRequest):
-    # ... (function remains the same)
     user_id = get_or_create_user(req.username)
     with file_lock:
         if os.path.exists(INTERACTIONS_FILE):
@@ -321,33 +337,38 @@ def feedback_route(req: FeedbackRequest):
 
 @app.get("/users/{username}/history")
 def get_history(username: str):
-    # ... (function remains the same)
     user_id = get_or_create_user(username)
     history = []
 
     is_new_user = True
-    if os.path.exists(INTERACTIONS_FILE):
-        df = pd.read_csv(INTERACTIONS_FILE)
-        user_rows = df[df["user_id"] == user_id]
-        if not user_rows.empty:
-            is_new_user = False
-            if movies_df is not None:
-                for mid, inter in zip(user_rows["movie_id"], user_rows["interaction"]):
-                    row = movies_df[movies_df["movieid"] == mid]
-                    if not row.empty:
-                        row = row.iloc[0]
-                        history.append({
-                            "movieId": int(mid),
-                            "title": movie_lookup.get(mid, "Unknown"),
-                            "interaction": inter,
-                            "genres": row["genres"].split("|")
-                        })
+    # Safe read of interaction file
+    interactions_df = pd.DataFrame(columns=["user_id", "movie_id", "interaction"]) 
+    if os.path.exists(INTERACTIONS_FILE) and os.path.getsize(INTERACTIONS_FILE) > 0:
+        try:
+            interactions_df = pd.read_csv(INTERACTIONS_FILE)
+        except pd.errors.EmptyDataError:
+            pass # Keep empty DF
+    
+    user_rows = interactions_df[interactions_df["user_id"] == user_id]
+    
+    if not user_rows.empty:
+        is_new_user = False
+        if movies_df is not None:
+            for mid, inter in zip(user_rows["movie_id"], user_rows["interaction"]):
+                row = movies_df[movies_df["movieid"] == mid]
+                if not row.empty:
+                    row = row.iloc[0]
+                    history.append({
+                        "movieId": int(mid),
+                        "title": movie_lookup.get(mid, "Unknown"),
+                        "interaction": inter,
+                        "genres": row["genres"].split("|")
+                    })
 
     return {"history": history, "is_new_user": is_new_user}
 
 @app.get("/warmup")
 def warmup():
-    # ... (function remains the same)
     if movies_df is None: load_data()
     if model is None: load_model_checkpoint()
     return {"status": "ready", "device": str(device)}
@@ -364,27 +385,69 @@ def startup_event():
 # -----------------------
 @app.get("/genres")
 def get_genres():
-    # ... (function remains the same)
     if movies_df is None:
         load_data()
         
     if movies_df is None or tags_df is None:
         raise HTTPException(status_code=503, detail="Server data not yet available.")
         
-    genres = sorted([c for c in content_cols if c not in tags_df.columns])
+    # Content_cols contains the top 15 CAPITIALIZED genres (plus tags)
+    # Filter out tags to return only the capitalized genres
+    
+    # We use tags_df.columns to filter out tag columns.
+    genres = sorted([c for c in content_cols if c not in tags_df.columns and c not in ['movieid', 'title', 'genres']])
     return genres
 
-# Removed @app.get("/actors") entirely
+# @app.get("/actors") endpoint removed
 
 @app.get("/movies")
 def get_top_movies():
-    # ... (function remains the same)
     if movies_df is None or ratings_df is None:
         load_data()
         
     if movies_df is None or ratings_df is None:
         raise HTTPException(status_code=503, detail="Movie or Rating data not available.")
     
+    # ----------------------------------------------------
+    # Weighted Rating Logic (Bayesian Average)
+    # ----------------------------------------------------
+    
+    # Step 1: Calculate Global Metrics (C and m)
+    movie_stats = ratings_df.groupby("movieid")["rating"].agg(['count', 'mean']).reset_index()
+    movie_stats.columns = ['movieid', 'v', 'R']
+    
+    # Minimum number of votes required (m): 75th percentile of vote counts
+    m = movie_stats['v'].quantile(0.75) 
+    
+    # Mean rating across ALL movies (C)
+    C = movie_stats['R'].mean()
+    
+    # Step 2: Merge and Filter
+    qualified_movies = movie_stats[movie_stats['v'] >= m].copy()
+    
+    if qualified_movies.empty:
+        # Fallback to simple average if few movies meet the threshold
+        print("⚠️ Not enough movies meet the 75th percentile vote threshold. Falling back to simple average ranking.")
+        return get_top_movies_simple_fallback()
+        
+    # Step 3: Calculate Weighted Rating (WR)
+    def weighted_rating(row):
+        v = row['v']
+        R = row['R']
+        return (v / (v + m) * R) + (m / (v + m) * C)
+        
+    qualified_movies['weighted_rating'] = qualified_movies.apply(weighted_rating, axis=1)
+    
+    # Step 4: Sort and Fetch Titles
+    qualified_movies = qualified_movies.sort_values('weighted_rating', ascending=False).head(25)
+    
+    # Join back to get the title
+    final_list = pd.merge(qualified_movies, movies_df[['movieid', 'title']], on='movieid', how='left')
+    
+    return [title for title in final_list["title"].tolist()]
+
+def get_top_movies_simple_fallback():
+    """Fallback if Bayesian method finds too few qualified movies."""
     avg_ratings = ratings_df.groupby("movieid")["rating"].mean()
     movies_copy = movies_df.copy()
     movies_copy["avg_rating"] = movies_copy["movieid"].map(avg_ratings).fillna(0)
