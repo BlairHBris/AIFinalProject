@@ -1,4 +1,4 @@
-const API_BASE_URL = "https://movie-recommender-backend.onrender.com";
+const API_BASE_URL = "https://movie-recommender-backend-a9wo.onrender.com";
 let currentUser = "";
 
 // ------------------- DOM ELEMENTS -------------------
