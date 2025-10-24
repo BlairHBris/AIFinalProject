@@ -25,7 +25,7 @@ TAGS_FILE = "tags.csv"
 MODEL_FILE = "torch_recommender.pt"
 
 TOP_TAGS = 512
-TOP_GENRES = 15 # <-- NEW CONSTANT for consistency
+TOP_GENRES = 20 # <-- NEW CONSTANT for consistency
 EMBEDDING_DIM = 32
 BATCH_SIZE = 512
 EPOCHS = 20

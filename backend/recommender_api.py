@@ -28,7 +28,7 @@ USERS_FILE = os.path.join(BASE_DIR, "users.csv")
 INTERACTIONS_FILE = os.path.join(BASE_DIR, "user_interactions.csv")
 MODEL_FILE = os.path.join(BASE_DIR, "torch_recommender.pt")
 UPDATE_THRESHOLD = 10
-TOP_GENRE_COUNT = 15 
+TOP_GENRE_COUNT = 20 
 
 FRONTEND_URLS = [
     "http://localhost:3000",
@@ -226,64 +226,85 @@ def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = 
     if movies_df is None or model is None:
         return []
 
+    # --- 1. Get Seen Movies & Initialize Candidates (No Change) ---
     with file_lock:
         seen = set()
         interactions_df = pd.DataFrame(columns=["user_id", "movie_id", "interaction"]) 
-
         if os.path.exists(INTERACTIONS_FILE) and os.path.getsize(INTERACTIONS_FILE) > 0:
             try:
                 interactions_df = pd.read_csv(INTERACTIONS_FILE)
             except pd.errors.EmptyDataError:
-                print("⚠️ INTERACTIONS_FILE exists but is empty.")
-            except Exception as e:
-                print(f"❌ Error reading INTERACTIONS_FILE: {e}")
+                pass 
         
         seen = set(interactions_df[interactions_df["user_id"]==user_id]["movie_id"].astype(int))
+        # Candidates are ALL unseen movies
         candidates_df = movies_df[~movies_df["movieid"].isin(seen)].copy()
 
-        if rec_type != 'collab':
-            if liked_genres:
-                genre_mask = pd.Series(True, index=candidates_df.index)
-                for g in liked_genres:
-                    # Check against the Title-Cased genres (which are the column names)
-                    if g in candidates_df.columns:
-                        genre_mask &= (candidates_df[g] == 1)
-                candidates_df = candidates_df[genre_mask]
+        # 🛑 REMOVE HARD FILTER: Delete the entire block that uses liked_genres to subset candidates_df
 
         candidates = candidates_df["movieid"].tolist()
         if not candidates:
             return []
 
-        preds = []
-        batch_size = 64
-        u_idx = user2idx.get(user_id, 0)
-        for i in range(0, len(candidates), batch_size):
-            batch = candidates[i:i+batch_size]
-            scores = predict_batch(u_idx, batch, mode=rec_type)
-            preds.extend(zip(batch, scores))
+    # --- 2. Score Candidates (Prediction) ---
+    preds = []
+    batch_size = 64
+    u_idx = user2idx.get(user_id, 0)
+    for i in range(0, len(candidates), batch_size):
+        batch = candidates[i:i+batch_size]
+        scores = predict_batch(u_idx, batch, mode=rec_type)
+        preds.extend(zip(batch, scores))
 
-        top_preds = sorted(preds, key=lambda x: x[1], reverse=True)[:top_n]
-        enriched = []
-        for mid, _ in top_preds:
-            row_df = movies_df[movies_df["movieid"] == mid]
-            if row_df.empty:
-                continue
-            row = row_df.iloc[0]
+    # --- 3. APPLY SOFT BIASING (NEW LOGIC) ---
+    final_scores = []
+    GENRE_BOOST = 0.5 # <--- TWEAK THIS: Amount to boost the predicted score by
+
+    for mid, score in preds:
+        movie_row_df = movies_df[movies_df["movieid"] == mid]
+        if movie_row_df.empty:
+            continue
             
-            movie_ratings = ratings_df[ratings_df["movieid"] == mid]["rating"]
-            avg_rating = movie_ratings.mean() if not movie_ratings.empty else None
-            tags = tags_df[tags_df["movieid"] == mid]["tag"].value_counts().head(3).index.tolist()
+        movie_row = movie_row_df.iloc[0]
+        
+        boost = 0.0
+        if liked_genres and rec_type != 'collab':
+            # Check how many selected genres the movie matches
+            match_count = 0
+            for g in liked_genres:
+                # Check if the Title-Cased genre column exists and has a value of 1
+                if g in candidates_df.columns and movie_row.get(g, 0) == 1:
+                    match_count += 1
             
-            genres_output = row["genres"].split("|") 
+            # Apply a boost proportional to the number of matched genres
+            # Example: Max boost is 0.5, divided by total liked genres
+            boost = (match_count / len(liked_genres)) * GENRE_BOOST
             
-            enriched.append({
-                "movieId": int(mid),
-                "title": movie_lookup.get(mid, "Unknown"),
-                "avg_rating": avg_rating,
-                "genres": genres_output,
-                "top_tags": tags
-            })
-        return enriched
+        # Add boost to the predicted score
+        final_scores.append((mid, score + boost))
+
+    # --- 4. Sort and Enrich Results ---
+    top_preds = sorted(final_scores, key=lambda x: x[1], reverse=True)[:top_n]
+    
+    enriched = []
+    for mid, final_score in top_preds: # Use final_score if you want to display the boosted score
+        # ... (Enrichment logic remains the same) ...
+        row_df = movies_df[movies_df["movieid"] == mid]
+        if row_df.empty: continue
+        row = row_df.iloc[0]
+        
+        movie_ratings = ratings_df[ratings_df["movieid"] == mid]["rating"]
+        avg_rating = movie_ratings.mean() if not movie_ratings.empty else None
+        tags = tags_df[tags_df["movieid"] == mid]["tag"].value_counts().head(3).index.tolist()
+        genres_output = row["genres"].split("|") 
+        
+        enriched.append({
+            "movieId": int(mid),
+            "title": movie_lookup.get(mid, "Unknown"),
+            "avg_rating": avg_rating,
+            "genres": genres_output,
+            "top_tags": tags
+        })
+    return enriched
 
 # -----------------------
 # Pydantic Models
