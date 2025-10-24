@@ -1,7 +1,7 @@
 const API_BASE_URL = "https://movie-recommender-backend.onrender.com";
 let currentUser = "";
 
-// DOM Elements
+// ------------------- DOM ELEMENTS -------------------
 const loginSection = document.getElementById("login-section");
 const recommendSection = document.getElementById("recommend-section");
 const usernameInput = document.getElementById("username");
@@ -11,43 +11,49 @@ const recommendationsDiv = document.getElementById("recommendations");
 const historyDiv = document.getElementById("history");
 const spinner = document.getElementById("spinner");
 
-// LOGIN
+// ------------------- LOGIN -------------------
 loginButton.addEventListener("click", async () => {
 	const username = usernameInput.value.trim();
 	if (!username) return alert("Please enter a username");
 	currentUser = username;
 
-	try {
-		const res = await fetch(`${API_BASE_URL}/users/${username}/login`, {
-			method: "POST",
-		});
-		if (!res.ok) throw new Error("Login failed");
+	const userType =
+		document.querySelector('input[name="userType"]:checked')?.value ||
+		"existing";
 
+	try {
 		loginSection.style.display = "none";
 		recommendSection.style.display = "block";
 		logoutButton.style.display = "block";
 
 		await loadFilters();
-		await loadHistory();
+
+		if (userType === "new") {
+			historyDiv.innerHTML = "<p>Welcome, new user!</p>";
+		} else {
+			await loadHistory();
+		}
 	} catch (err) {
 		console.error("Login error:", err);
 		alert("Failed to log in.");
 	}
 });
 
-// LOGOUT
+// ------------------- LOGOUT -------------------
 logoutButton.addEventListener("click", () => {
 	currentUser = "";
 	loginSection.style.display = "block";
 	recommendSection.style.display = "none";
 	logoutButton.style.display = "none";
+	historyDiv.innerHTML = "";
+	recommendationsDiv.innerHTML = "";
 });
 
-// LOAD FILTER OPTIONS
+// ------------------- FILTER OPTIONS -------------------
 async function loadFilters() {
 	await loadOptions("genre-options", "genres", "alpha");
 	await loadOptions("actor-options", "actors", "alpha");
-	await loadOptions("movie-options", "movies", "rating"); // top 25 movies
+	await loadOptions("movie-options", "movies", "rating");
 }
 
 async function loadOptions(selectId, endpoint, sortType) {
@@ -58,9 +64,8 @@ async function loadOptions(selectId, endpoint, sortType) {
 		if (!res.ok) throw new Error(`Failed to fetch ${endpoint}`);
 		let data = await res.json();
 
-		// Sorting
 		if (sortType === "alpha") data.sort((a, b) => a.localeCompare(b));
-		else if (sortType === "rating") data = data.slice(0, 25); // already top 25 from backend
+		else if (sortType === "rating") data = data.slice(0, 25);
 
 		data.forEach((item) => {
 			const opt = document.createElement("option");
@@ -73,7 +78,7 @@ async function loadOptions(selectId, endpoint, sortType) {
 	}
 }
 
-// ENABLE DROPDOWN SEARCH
+// ------------------- ENABLE DROPDOWN SEARCH -------------------
 function enableSelectSearch(inputId, selectId) {
 	const input = document.getElementById(inputId);
 	const select = document.getElementById(selectId);
@@ -90,7 +95,7 @@ enableSelectSearch("genre-search", "genre-options");
 enableSelectSearch("actor-search", "actor-options");
 enableSelectSearch("movie-search", "movie-options");
 
-// CLEAR BUTTONS
+// ------------------- CLEAR BUTTONS -------------------
 function enableClearButton(buttonId, selectId, searchId) {
 	const btn = document.getElementById(buttonId);
 	const select = document.getElementById(selectId);
@@ -107,7 +112,7 @@ enableClearButton("clear-genres", "genre-options", "genre-search");
 enableClearButton("clear-actors", "actor-options", "actor-search");
 enableClearButton("clear-movies", "movie-options", "movie-search");
 
-// GET RECOMMENDATIONS
+// ------------------- GET RECOMMENDATIONS -------------------
 document.getElementById("getRecsBtn").addEventListener("click", async () => {
 	if (!currentUser) return alert("Please log in first");
 
@@ -133,11 +138,10 @@ document.getElementById("getRecsBtn").addEventListener("click", async () => {
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(payload),
 		});
-
 		if (!res.ok) throw new Error("Failed to fetch recommendations");
 		const data = await res.json();
+
 		displayRecommendations(data.recommendations || []);
-		await loadHistory();
 	} catch (err) {
 		console.error("Recommendation error:", err);
 		alert("Failed to fetch recommendations.");
@@ -146,6 +150,7 @@ document.getElementById("getRecsBtn").addEventListener("click", async () => {
 	}
 });
 
+// ------------------- DISPLAY RECOMMENDATIONS -------------------
 function displayRecommendations(recs) {
 	recommendationsDiv.innerHTML = "";
 	if (!recs.length) {
@@ -157,74 +162,116 @@ function displayRecommendations(recs) {
 		const div = document.createElement("div");
 		div.className = "movie-card";
 		div.innerHTML = `
-      <span><strong>${m.title}</strong></span>
-      <em>Rating: ${m.avg_rating?.toFixed(2) ?? "N/A"}</em>
-      <em>Genres: ${m.genres.join(", ")}</em>
-      <em>Tags: ${m.top_tags.join(", ")}</em>
-      <div class="feedback-buttons">
-        <button class="feedback-btn" data-type="interested">Interested</button>
-        <button class="feedback-btn" data-type="watched">Watched</button>
-      </div>
-    `;
+			<span><strong>${m.title}</strong></span>
+			<em>Rating: ${m.avg_rating?.toFixed(2) ?? "N/A"}</em>
+			<em>Genres: ${m.genres.join(", ")}</em>
+			<em>Tags: ${m.top_tags.join(", ")}</em>
+			<div class="feedback-buttons">
+				<button class="feedback-btn" data-type="interested">Interested</button>
+				<button class="feedback-btn" data-type="watched">Watched</button>
+			</div>
+		`;
 		recommendationsDiv.appendChild(div);
 
 		const [interestedBtn, watchedBtn] = div.querySelectorAll(".feedback-btn");
 
-		async function handleFeedback(button, type) {
-			const isActive = button.classList.contains("active");
-			const action = isActive ? "remove" : type;
-			try {
-				await fetch(`${API_BASE_URL}/feedback`, {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						username: currentUser,
-						movie_id: m.movieId,
-						interaction: action,
-					}),
-				});
-				button.classList.toggle("active");
-			} catch (err) {
-				console.error("Feedback error:", err);
-			}
-			await loadHistory();
-		}
+		const setupFeedback = (button, type) => {
+			button.addEventListener("click", async () => {
+				const isActive = button.classList.contains("active");
+				const action = isActive ? "remove" : type;
 
-		interestedBtn.addEventListener("click", () =>
-			handleFeedback(interestedBtn, "interested")
-		);
-		watchedBtn.addEventListener("click", () =>
-			handleFeedback(watchedBtn, "watched")
-		);
+				try {
+					await fetch(`${API_BASE_URL}/feedback`, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({
+							username: currentUser,
+							movie_id: m.movieId,
+							interaction: action,
+						}),
+					});
+					button.classList.toggle("active", !isActive);
+					updateHistoryLocal(m, action);
+				} catch (err) {
+					console.error("Feedback error:", err);
+				}
+			});
+		};
+
+		setupFeedback(interestedBtn, "interested");
+		setupFeedback(watchedBtn, "watched");
 	});
 }
 
-// LOAD HISTORY
+// ------------------- LOAD HISTORY -------------------
 async function loadHistory() {
 	historyDiv.innerHTML = "";
+	if (!currentUser) return;
+
 	try {
 		const res = await fetch(`${API_BASE_URL}/users/${currentUser}/history`);
 		if (!res.ok) throw new Error("Failed to load history");
 		const data = await res.json();
-		if (!data.history?.length) {
-			historyDiv.innerHTML = "<p>No history yet.</p>";
+
+		if (data.is_new_user) {
+			historyDiv.innerHTML = "<p>Welcome, new user!</p>";
 			return;
 		}
 
-		data.history.forEach((h) => {
-			const div = document.createElement("div");
-			div.className = "movie-card";
-			div.innerHTML = `<span>${h.title}</span><em>${
-				h.interaction
-			}</em><em>Genres: ${h.genres.join(", ")}</em>`;
-			historyDiv.appendChild(div);
-		});
+		displayHistory(data.history);
 	} catch (err) {
 		console.error("Failed to load history:", err);
 	}
 }
 
-// UTIL
+// ------------------- DISPLAY HISTORY -------------------
+function displayHistory(history) {
+	historyDiv.innerHTML = "";
+	if (!history || history.length === 0) {
+		historyDiv.innerHTML = "<p>No history yet.</p>";
+		return;
+	}
+
+	history.forEach((h) => {
+		const div = document.createElement("div");
+		div.className = "movie-card";
+		div.innerHTML = `
+			<span><strong>${h.title}</strong></span>
+			<em>Interaction: ${h.interaction}</em>
+			<em>Genres: ${h.genres.join(", ")}</em>
+		`;
+		historyDiv.appendChild(div);
+	});
+}
+
+// ------------------- LOCAL HISTORY UPDATE -------------------
+function updateHistoryLocal(movie, interaction) {
+	const existing = Array.from(historyDiv.querySelectorAll(".movie-card")).find(
+		(div) => div.querySelector("span").textContent.includes(movie.title)
+	);
+
+	if (interaction === "remove") {
+		if (existing) existing.remove();
+		return;
+	}
+
+	if (existing) {
+		// Update interaction
+		const ems = existing.querySelectorAll("em");
+		if (ems.length > 0) ems[0].textContent = `Interaction: ${interaction}`;
+	} else {
+		const div = document.createElement("div");
+		div.className = "movie-card";
+		div.innerHTML = `
+			<span><strong>${movie.title}</strong></span>
+			<em>Interaction: ${interaction}</em>
+			<em>Genres: ${movie.genres.join(", ")}</em>
+		`;
+		historyDiv.appendChild(div);
+	}
+}
+
+// ------------------- UTIL -------------------
 function getSelectedValues(selectId) {
 	return Array.from(document.getElementById(selectId).selectedOptions).map(
 		(opt) => opt.value

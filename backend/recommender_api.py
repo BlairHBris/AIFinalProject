@@ -29,6 +29,7 @@ USERS_FILE = os.path.join(BASE_DIR, "users.csv")
 INTERACTIONS_FILE = os.path.join(BASE_DIR, "user_interactions.csv")
 MODEL_FILE = os.path.join(BASE_DIR, "torch_recommender.pt")
 UPDATE_THRESHOLD = 10
+TOP_ACTORS_COUNT = 20
 
 FRONTEND_URLS = [
     "http://localhost:3000",
@@ -68,6 +69,7 @@ movie_lookup = {}
 title_to_movieid = {}
 movieid2row = {}
 file_lock = threading.Lock()
+top_actors_cache: List[str] = []
 
 # -----------------------
 # PyTorch Model
@@ -156,6 +158,14 @@ def load_model_checkpoint():
     except Exception as e:
         print(f"❌ Error loading model: {e}")
         model = None
+
+def load_top_actors():
+    global top_actors_cache
+    if movies_df is None:
+        load_data()
+    all_actors = movies_df["actors"].dropna().str.split(",").explode().str.strip()
+    top_actors_cache = all_actors.value_counts().head(TOP_ACTORS_COUNT).index.tolist()
+    print(f"✅ Cached top {TOP_ACTORS_COUNT} actors")
 
 def get_or_create_user(username: str) -> int:
     username = username.strip().lower()
@@ -309,16 +319,26 @@ def feedback_route(req: FeedbackRequest):
 def get_history(username: str):
     user_id = get_or_create_user(username)
     history = []
+
+    is_new_user = True
     if os.path.exists(INTERACTIONS_FILE):
         df = pd.read_csv(INTERACTIONS_FILE)
-        user_rows = df[df["user_id"]==user_id]
-        if movies_df is not None:
-            for mid, inter in zip(user_rows["movie_id"], user_rows["interaction"]):
-                row = movies_df[movies_df["movieid"]==mid]
-                if not row.empty:
-                    row = row.iloc[0]
-                    history.append({"movieId": int(mid), "title": movie_lookup.get(mid,"Unknown"), "interaction": inter, "genres": row["genres"].split("|")})
-    return {"history": history}
+        user_rows = df[df["user_id"] == user_id]
+        if not user_rows.empty:
+            is_new_user = False
+            if movies_df is not None:
+                for mid, inter in zip(user_rows["movie_id"], user_rows["interaction"]):
+                    row = movies_df[movies_df["movieid"] == mid]
+                    if not row.empty:
+                        row = row.iloc[0]
+                        history.append({
+                            "movieId": int(mid),
+                            "title": movie_lookup.get(mid, "Unknown"),
+                            "interaction": inter,
+                            "genres": row["genres"].split("|")
+                        })
+
+    return {"history": history, "is_new_user": is_new_user}
 
 @app.get("/warmup")
 def warmup():
@@ -330,12 +350,12 @@ def warmup():
 def startup_event():
     load_data()
     load_model_checkpoint()
+    load_top_actors()
     print("✅ Startup complete")
 
 # -----------------------
 # Helper endpoints for frontend dropdowns
 # -----------------------
-
 @app.get("/genres")
 def get_genres():
     if movies_df is None:
@@ -344,31 +364,17 @@ def get_genres():
     return genres
 
 @app.get("/actors")
-def get_actors(top_n: int = 20):
-    if movies_df is None:
-        load_data()
-    # Extract actors from movies_df, split by comma
-    all_actors = movies_df["actors"].dropna().str.split(",").explode().str.strip()
-    top_actors = all_actors.value_counts().head(top_n).index.tolist()
-    return top_actors
+def get_actors(top_n: int = TOP_ACTORS_COUNT):
+    return top_actors_cache[:top_n]
 
 @app.get("/movies")
 def get_top_movies():
-    """Returns top 25 movies sorted by average rating for frontend dropdown."""
     if movies_df is None or ratings_df is None:
         load_data()
-
-    # Compute average ratings
     avg_ratings = ratings_df.groupby("movieid")["rating"].mean()
-    
-    # Merge with movies_df
     movies_copy = movies_df.copy()
     movies_copy["avg_rating"] = movies_copy["movieid"].map(avg_ratings).fillna(0)
-    
-    # Sort descending by avg_rating and take top 25
     top_movies = movies_copy.sort_values("avg_rating", ascending=False).head(25)
-    
-    # Return only titles
     return [title for title in top_movies["title"].tolist()]
 
 # -----------------------
