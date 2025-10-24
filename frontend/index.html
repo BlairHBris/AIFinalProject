@@ -4,7 +4,7 @@
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<title>🎬 Movie Recommender</title>
-		<link rel="stylesheet" href="style.css" />
+		<link rel="stylesheet" href="styles.css" />
 	</head>
 	<body>
 		<div class="container">
@@ -37,6 +37,14 @@
 					</div>
 				</div>
 
+				<div id="movie-section">
+					<h4>Select Favorite Movies</h4>
+					<div class="multi-select" id="movie-select-container">
+						<select id="movie-options" multiple size="5"></select>
+						<div class="selected-display">Select movies...</div>
+					</div>
+				</div>
+
 				<div id="actor-section">
 					<h4>Select Actors</h4>
 					<div class="multi-select" id="actor-select-container">
@@ -61,12 +69,11 @@
 			</div>
 		</div>
 
-		<!-- Spinner overlay -->
 		<div id="spinner">
 			<div class="spinner-inner"></div>
 			<div class="spinner-text">Loading...</div>
 		</div>
 
-		<script src="script.js"></script>
+		<script src="scripts.js"></script>
 	</body>
 </html>

@@ -17,7 +17,6 @@ body {
 h1 {
 	text-align: center;
 }
-
 h3,
 h4 {
 	margin-top: 1rem;
@@ -31,6 +30,7 @@ h4 {
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
+	flex-direction: column;
 }
 
 button {
@@ -41,10 +41,16 @@ button {
 	border-radius: 5px;
 	cursor: pointer;
 	margin-left: 5px;
+	transition: background 0.2s;
 }
 
 button:hover {
 	background: #0056b3;
+}
+
+button.feedback-btn.active {
+	background-color: #28a745;
+	color: #fff;
 }
 
 input,
@@ -65,41 +71,16 @@ select[multiple] {
 	overflow-y: scroll;
 }
 
-/* Make labels for checkboxes inline */
 label {
 	display: inline-block;
 	margin-right: 10px;
 }
 
-/* Scrollable container for recommendations and history */
 #recommendations,
 #history {
 	max-height: 300px;
 	overflow-y: auto;
 	margin-top: 1rem;
-}
-
-/* User section */
-#user-section,
-#recommend-section {
-	margin-bottom: 2rem;
-}
-
-/* Genre & actor section */
-#genre-options,
-#actor-options {
-	margin-bottom: 10px;
-}
-
-/* Responsive adjustments */
-@media (max-width: 600px) {
-	.container {
-		margin: 1rem;
-		padding: 0.5rem;
-	}
-	button {
-		padding: 5px 8px;
-	}
 }
 
 .multi-select {
@@ -111,7 +92,7 @@ label {
 .multi-select select {
 	width: 100%;
 	height: auto;
-	opacity: 0; /* hide native select */
+	opacity: 0;
 	position: absolute;
 	top: 0;
 	left: 0;
@@ -151,7 +132,7 @@ label {
 	align-items: center;
 	flex-direction: column;
 	opacity: 0;
-	transition: opacity 0.3s ease-in-out; /* smooth fade */
+	transition: opacity 0.3s ease-in-out;
 }
 
 #spinner.show {

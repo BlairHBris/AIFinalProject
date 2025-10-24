@@ -4,9 +4,12 @@ services:
     name: movie-recommender-api
     env: python
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "uvicorn recommender_api:app --host 0.0.0.0 --port 10000"
+    startCommand: "uvicorn recommender_api:app --host 0.0.0.0 --port $PORT"
     pythonVersion: 3.12.0
     plan: free
+    envVars:
+      - key: FRONTEND_URL
+        value: https://movie-recommender-frontend-nxw6.onrender.com
 
   # === Frontend (Static HTML/JS/CSS) ===
   - type: web
@@ -17,4 +20,4 @@ services:
     staticPublishPath: .
     envVars:
       - key: API_BASE_URL
-        value: https://movie-recommender-backend-a9wo.onrender.com
+        value: https://movie-recommender-api.onrender.com

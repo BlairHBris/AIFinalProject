@@ -1,12 +1,11 @@
 # train_torch.py
 """
-Local training script. Run this locally (not on Render) to produce
-'torch_recommender.pt' and commit that .pt to the repo before deploying.
+Local training script. Produces 'torch_recommender.pt' for backend.
 
 Key points:
-- Uses float16 for precomputed content features to reduce size.
-- Limits tag features to TOP_TAGS (512 by default) to reduce dimensionality.
-- Saves a full checkpoint dict:
+- Uses ratings + tags + genres for hybrid recommendation.
+- Stores content features (genres + top 512 tags) for backend use.
+- Saves full checkpoint:
     { "model_state_dict": ..., "user2idx": ..., "movie2idx": ..., "content_cols": ... }
 """
 
@@ -16,7 +15,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from sklearn.feature_extraction.text import CountVectorizer
 
 # -----------------------
 # Config
@@ -26,7 +24,7 @@ RATINGS_FILE = "ratings.csv"
 TAGS_FILE = "tags.csv"
 MODEL_FILE = "torch_recommender.pt"
 
-TOP_TAGS = 512          # reduce dimensionality (keeps top 512 tags)
+TOP_TAGS = 512
 EMBEDDING_DIM = 32
 BATCH_SIZE = 512
 EPOCHS = 20
@@ -56,17 +54,16 @@ if "actors" not in movies.columns:
 movies["genres"] = movies.get("genres", "").fillna("")
 
 # genres one-hot
-unique_genres = set("|".join(movies["genres"]).split("|"))
-unique_genres = {g for g in unique_genres if g}
+unique_genres = {g for g in "|".join(movies["genres"]).split("|") if g}
 for g in unique_genres:
     movies[g] = movies["genres"].apply(lambda x: 1 if g in x else 0).astype(np.float16)
 
-# top tags -> CountVectorizer or pivot whichever is more economical
+# top tags (limit to 512)
 tags["tag"] = tags["tag"].fillna("").astype(str).str.lower()
 top_tags = tags["tag"].value_counts().head(TOP_TAGS).index.tolist()
 tags_subset = tags[tags["tag"].isin(top_tags)]
 
-# pivot to multi-hot matrix (dense): small memory because we limit TOP_TAGS and convert to float16
+# pivot to multi-hot matrix (dense)
 tag_matrix = tags_subset.pivot_table(index="movieid", columns="tag", aggfunc="size", fill_value=0)
 tag_matrix = tag_matrix.reindex(columns=top_tags, fill_value=0).astype(np.float16)
 movies = movies.merge(tag_matrix, on="movieid", how="left").fillna(0)
@@ -86,7 +83,7 @@ movie2idx = {m: i for i, m in enumerate(movie_ids)}
 ratings["user_idx"] = ratings["userid"].map(user2idx)
 ratings["movie_idx"] = ratings["movieid"].map(movie2idx)
 
-# precompute movie features aligned to movie_idx order, dtype float16
+# precompute movie features aligned to movie_idx order
 movie_features = movies.set_index("movieid").reindex(movie_ids)[content_cols].fillna(0).astype(np.float16)
 movie_features_tensor = torch.tensor(movie_features.values, dtype=torch.float16)
 
@@ -104,7 +101,6 @@ class RatingsDataset(Dataset):
         return len(self.ratings)
 
     def __getitem__(self, idx):
-        # convert movie_feats per-sample to float32 for compute stability
         feats = self.movie_feats[self.movies[idx]].to(torch.float32)
         return self.users[idx], self.movies[idx], feats, self.ratings[idx]
 
@@ -117,7 +113,6 @@ loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
 class RecommenderNet(nn.Module):
     def __init__(self, num_users, num_movies, movie_feat_dim, embedding_dim=EMBEDDING_DIM):
         super().__init__()
-        # +1 padding to allow unknown index mapping if needed
         self.user_embed = nn.Embedding(num_users + 1, embedding_dim, padding_idx=0)
         self.movie_embed = nn.Embedding(num_movies + 1, embedding_dim, padding_idx=0)
         self.fc = nn.Linear(embedding_dim + movie_feat_dim, 1)
@@ -142,20 +137,17 @@ model.train()
 for epoch in range(EPOCHS):
     total_loss = 0.0
     for u, m, mf, r in loader:
-        u = u.to(DEVICE)
-        m = m.to(DEVICE)
-        mf = mf.to(DEVICE)  # already float32
-        r = r.to(DEVICE)
+        u, m, mf, r = u.to(DEVICE), m.to(DEVICE), mf.to(DEVICE), r.to(DEVICE)
         optimizer.zero_grad()
         pred = model(u, m, mf)
         loss = criterion(pred, r)
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
-    print(f"Epoch {epoch+1}/{EPOCHS} - loss: {total_loss / len(loader):.4f}")
+    print(f"Epoch {epoch+1}/{EPOCHS} - loss: {total_loss/len(loader):.4f}")
 
 # -----------------------
-# Save checkpoint (full dict)
+# Save checkpoint
 # -----------------------
 checkpoint = {
     "model_state_dict": model.state_dict(),
