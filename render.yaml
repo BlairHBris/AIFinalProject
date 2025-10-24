@@ -17,7 +17,7 @@ services:
     env: static
     rootDir: frontend
     buildCommand: ""
-    staticPublishPath: .
+    staticPublishPath: frontend
     envVars:
       - key: API_BASE_URL
         value: https://movie-recommender-api.onrender.com
