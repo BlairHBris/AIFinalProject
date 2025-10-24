@@ -216,55 +216,54 @@ def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = 
     if movies_df is None or model is None:
         return []
 
-with file_lock:
-    if os.path.exists(INTERACTIONS_FILE):
-        interactions_df = pd.read_csv(INTERACTIONS_FILE)
-        # User-specific seen movies
-        seen = set(interactions_df[interactions_df["user_id"]==user_id]["movie_id"].astype(int))
-    else:
-        seen = set()
+    with file_lock:
+        if os.path.exists(INTERACTIONS_FILE):
+            interactions_df = pd.read_csv(INTERACTIONS_FILE)
+            seen = set(interactions_df[interactions_df["user_id"]==user_id]["movie_id"].astype(int))
+        else:
+            seen = set()
 
-    candidates_df = movies_df[~movies_df["movieid"].isin(seen)].copy()
+        candidates_df = movies_df[~movies_df["movieid"].isin(seen)].copy()
 
-    if rec_type != 'collab':
-        if liked_genres:
-            genre_mask = pd.Series(True, index=candidates_df.index)
-            for g in liked_genres:
-                if g in candidates_df.columns:
-                    genre_mask &= (candidates_df[g] == 1)
-            candidates_df = candidates_df[genre_mask]
+        if rec_type != 'collab':
+            if liked_genres:
+                genre_mask = pd.Series(True, index=candidates_df.index)
+                for g in liked_genres:
+                    if g in candidates_df.columns:
+                        genre_mask &= (candidates_df[g] == 1)
+                candidates_df = candidates_df[genre_mask]
 
-        if liked_actors:
-            for a in liked_actors:
-                candidates_df = candidates_df[candidates_df.get("actors", "").str.lower().str.contains(a.lower(), na=False)]
+            if liked_actors:
+                for a in liked_actors:
+                    candidates_df = candidates_df[candidates_df.get("actors", "").str.lower().str.contains(a.lower(), na=False)]
 
-    candidates = candidates_df["movieid"].tolist()
-    if not candidates:
-        return []
+        candidates = candidates_df["movieid"].tolist()
+        if not candidates:
+            return []
 
-    preds = []
-    batch_size = 64
-    u_idx = user2idx.get(user_id, 0)
-    for i in range(0, len(candidates), batch_size):
-        batch = candidates[i:i+batch_size]
-        scores = predict_batch(u_idx, batch, mode=rec_type)
-        preds.extend(zip(batch, scores))
+        preds = []
+        batch_size = 64
+        u_idx = user2idx.get(user_id, 0)
+        for i in range(0, len(candidates), batch_size):
+            batch = candidates[i:i+batch_size]
+            scores = predict_batch(u_idx, batch, mode=rec_type)
+            preds.extend(zip(batch, scores))
 
-    top_preds = sorted(preds, key=lambda x: x[1], reverse=True)[:top_n]
-    enriched = []
-    for mid, _ in top_preds:
-        row = movies_df[movies_df["movieid"] == mid].iloc[0]
-        movie_ratings = ratings_df[ratings_df["movieid"] == mid]["rating"]
-        avg_rating = movie_ratings.mean() if not movie_ratings.empty else None
-        tags = tags_df[tags_df["movieid"] == mid]["tag"].value_counts().head(3).index.tolist()
-        enriched.append({
-            "movieId": int(mid),
-            "title": movie_lookup.get(mid, "Unknown"),
-            "avg_rating": avg_rating,
-            "genres": row["genres"].split("|"),
-            "top_tags": tags
-        })
-    return enriched
+        top_preds = sorted(preds, key=lambda x: x[1], reverse=True)[:top_n]
+        enriched = []
+        for mid, _ in top_preds:
+            row = movies_df[movies_df["movieid"] == mid].iloc[0]
+            movie_ratings = ratings_df[ratings_df["movieid"] == mid]["rating"]
+            avg_rating = movie_ratings.mean() if not movie_ratings.empty else None
+            tags = tags_df[tags_df["movieid"] == mid]["tag"].value_counts().head(3).index.tolist()
+            enriched.append({
+                "movieId": int(mid),
+                "title": movie_lookup.get(mid, "Unknown"),
+                "avg_rating": avg_rating,
+                "genres": row["genres"].split("|"),
+                "top_tags": tags
+            })
+        return enriched
 
 # -----------------------
 # Pydantic Models
