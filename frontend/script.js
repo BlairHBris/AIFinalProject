@@ -56,9 +56,7 @@ logoutButton.addEventListener("click", () => {
 
 // ------------------- FILTER OPTIONS -------------------
 async function loadFilters() {
-	// Only loads Genres and Movies now
 	await loadOptions("genre-options", "genres", "alpha");
-	// Removed await loadOptions("actor-options", "actors", "alpha");
 	await loadOptions("movie-options", "movies", "rating");
 }
 
@@ -101,13 +99,11 @@ document.getElementById("getRecsBtn").addEventListener("click", async () => {
 
 	const type = document.getElementById("type").value;
 	const genres = getSelectedValues("genre-options");
-	// const actors = getSelectedValues("actor-options"); <-- Removed
 	const movies = getSelectedValues("movie-options");
 
 	const payload = {
 		username: currentUser,
 		liked_genres: genres,
-		// liked_actors: actors, <-- Removed
 		liked_movies: movies,
 		top_n: 10,
 	};
@@ -133,9 +129,8 @@ document.getElementById("getRecsBtn").addEventListener("click", async () => {
 	}
 });
 
-// ------------------- DISPLAY RECOMMENDATIONS (Remaining functions are unchanged) -------------------
+// ------------------- DISPLAY RECOMMENDATIONS -------------------
 function displayRecommendations(recs) {
-	// ... (rest of the displayRecommendations function is unchanged)
 	recommendationsDiv.innerHTML = "";
 	if (!recs.length) {
 		recommendationsDiv.innerHTML = "<p>No recommendations found.</p>";
@@ -145,6 +140,7 @@ function displayRecommendations(recs) {
 	recs.forEach((m) => {
 		const div = document.createElement("div");
 		div.className = "movie-card";
+		div.setAttribute("data-movie-id", m.movieId); // Added ID for easier hiding
 		div.innerHTML = `
             <span><strong>${m.title}</strong></span>
             <em>Rating: ${m.avg_rating?.toFixed(2) ?? "N/A"}</em>
@@ -152,29 +148,39 @@ function displayRecommendations(recs) {
             <em>Tags: ${m.top_tags.join(", ")}</em>
             <div class="feedback-buttons">
                 <button class="feedback-btn" data-type="interested">Interested</button>
-                <button class="feedback-btn" data-type="watched">Watched</button>
+                <button class="feedback-btn" data-type="watched">Watched and Liked</button>
+                <button class="feedback-btn not-interested-btn" data-type="not_interested">Not Interested</button>
             </div>
         `;
 		recommendationsDiv.appendChild(div);
 
-		const [interestedBtn, watchedBtn] = div.querySelectorAll(".feedback-btn");
+		const [interestedBtn, watchedBtn, notInterestedBtn] =
+			div.querySelectorAll(".feedback-btn");
 
 		const setupFeedback = (button, type) => {
 			button.addEventListener("click", async () => {
 				const isActive = button.classList.contains("active");
+
+				if (type === "not_interested") {
+					// Not Interested: Send permanent flag and hide card
+					await sendFeedback(m.movieId, "not_interested");
+					div.style.display = "none";
+					await loadHistory();
+					return;
+				}
+
+				// Interested/Watched Logic (Toggle)
 				const action = isActive ? "remove" : type;
 
 				try {
-					await fetch(`${API_BASE_URL}/feedback`, {
-						method: "POST",
-						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify({
-							username: currentUser,
-							movie_id: m.movieId,
-							interaction: action,
-						}),
-					});
+					await sendFeedback(m.movieId, action);
+
+					// Update buttons
 					button.classList.toggle("active", !isActive);
+
+					// Optional: Deactivate other button if necessary (e.g., watching implies interested, so we might only show one active)
+					// (For simplicity, we let the user select both, but the history will show the last action)
+
 					updateHistoryLocal(m, action);
 				} catch (err) {
 					console.error("Feedback error:", err);
@@ -184,12 +190,32 @@ function displayRecommendations(recs) {
 
 		setupFeedback(interestedBtn, "interested");
 		setupFeedback(watchedBtn, "watched");
+		setupFeedback(notInterestedBtn, "not_interested");
 	});
+}
+
+// Helper function to centralize feedback API call
+async function sendFeedback(movieId, interaction) {
+	if (!currentUser) return;
+	try {
+		const res = await fetch(`${API_BASE_URL}/feedback`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				username: currentUser,
+				movie_id: movieId,
+				interaction: interaction,
+			}),
+		});
+		if (!res.ok) throw new Error("Failed to send feedback");
+	} catch (err) {
+		console.error("Feedback API error:", err);
+		alert(`Failed to record interaction: ${interaction}.`);
+	}
 }
 
 // ------------------- LOAD HISTORY -------------------
 async function loadHistory() {
-	// ... (rest of the loadHistory function is unchanged)
 	historyDiv.innerHTML = "";
 	if (!currentUser) return;
 
@@ -211,7 +237,6 @@ async function loadHistory() {
 
 // ------------------- DISPLAY HISTORY -------------------
 function displayHistory(history) {
-	// ... (rest of the displayHistory function is unchanged)
 	historyDiv.innerHTML = "";
 	if (!history || history.length === 0) {
 		historyDiv.innerHTML = "<p>No history yet.</p>";
@@ -232,7 +257,6 @@ function displayHistory(history) {
 
 // ------------------- LOCAL HISTORY UPDATE -------------------
 function updateHistoryLocal(movie, interaction) {
-	// ... (rest of the updateHistoryLocal function is unchanged)
 	const existing = Array.from(historyDiv.querySelectorAll(".movie-card")).find(
 		(div) => div.querySelector("span").textContent.includes(movie.title)
 	);
@@ -243,7 +267,6 @@ function updateHistoryLocal(movie, interaction) {
 	}
 
 	if (existing) {
-		// Update interaction
 		const ems = existing.querySelectorAll("em");
 		if (ems.length > 0) ems[0].textContent = `Interaction: ${interaction}`;
 	} else {
@@ -260,7 +283,6 @@ function updateHistoryLocal(movie, interaction) {
 
 // ------------------- UTIL -------------------
 function getSelectedValues(selectId) {
-	// ... (rest of the getSelectedValues function is unchanged)
 	return Array.from(document.getElementById(selectId).selectedOptions).map(
 		(opt) => opt.value
 	);

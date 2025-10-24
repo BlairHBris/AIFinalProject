@@ -1,9 +1,9 @@
 """
-Movie Recommender API (Final Hybrid Version)
-- Actor functionality removed.
-- Genres standardized (top 15, capitalized).
+Movie Recommender API (Final Production Version)
+- Genres standardized (top 15, Title Case).
 - Top Movies ranked by Weighted Rating (Bayesian Average).
 - PyTorch model loading fixed (weights_only=False).
+- Actor functionality removed entirely.
 """
 
 import os
@@ -28,7 +28,7 @@ USERS_FILE = os.path.join(BASE_DIR, "users.csv")
 INTERACTIONS_FILE = os.path.join(BASE_DIR, "user_interactions.csv")
 MODEL_FILE = os.path.join(BASE_DIR, "torch_recommender.pt")
 UPDATE_THRESHOLD = 10
-TOP_GENRE_COUNT = 15 # New constant for genre reduction
+TOP_GENRE_COUNT = 15 
 
 FRONTEND_URLS = [
     "http://localhost:3000",
@@ -68,7 +68,6 @@ movie_lookup = {}
 title_to_movieid = {}
 movieid2row = {}
 file_lock = threading.Lock()
-# top_actors_cache removed
 
 # -----------------------
 # PyTorch Model
@@ -112,8 +111,8 @@ def load_data():
     # --- Process Genres (Standardization and Reduction) ---
     movies_df["genres"] = movies_df.get("genres", "").fillna("")
     
-    # 1. Standardize to uppercase and count frequency
-    all_genres = movies_df["genres"].str.split("|").explode().str.upper().dropna()
+    # 1. Standardize to Title Case and count frequency
+    all_genres = movies_df["genres"].str.split("|").explode().str.title().dropna()
     genre_counts = all_genres.value_counts()
     
     # 2. Select top N genres
@@ -123,7 +122,7 @@ def load_data():
     # 3. One-hot encode only the top genres
     for g in top_genres:
         movies_df[g] = movies_df["genres"].apply(
-            lambda x: 1 if g in x.upper() else 0
+            lambda x: 1 if g in x.title() else 0
         ).astype(np.float32)
 
     # Process tags (top 512)
@@ -134,8 +133,6 @@ def load_data():
     )
     tag_matrix = tag_matrix.reindex(columns=top_tags, fill_value=0).astype(np.float32)
     movies_df = movies_df.merge(tag_matrix, on="movieid", how="left").fillna(0)
-
-    # Removed actor processing
 
     content_cols[:] = sorted(list(unique_genres)) + top_tags
     movie_lookup.update(movies_df.set_index("movieid")["title"].to_dict())
@@ -156,7 +153,7 @@ def load_model_checkpoint():
         return
 
     try:
-        # FIX: Set weights_only=False to allow loading model components that include NumPy globals.
+        # FIX: Set weights_only=False for reliable PyTorch loading
         chk = torch.load(MODEL_FILE, map_location=device, weights_only=False) 
         
         user2idx.update(chk.get("user2idx", {}))
@@ -169,8 +166,6 @@ def load_model_checkpoint():
     except Exception as e:
         print(f"❌ Error loading model: {e}")
         model = None
-
-# load_top_actors removed
 
 def get_or_create_user(username: str) -> int:
     username = username.strip().lower()
@@ -228,13 +223,11 @@ def predict_batch(user_idx_int: int, movie_id_batch: List[int], user_content_fea
     return preds.cpu().numpy()
 
 def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = [], liked_movies: List[str] = [], rec_type: str = "hybrid") -> List[Dict[str, Any]]:
-    # liked_actors removed from parameters
     if movies_df is None or model is None:
         return []
 
     with file_lock:
         seen = set()
-        # Initialize DataFrame safely to avoid EmptyDataError if file exists but is empty
         interactions_df = pd.DataFrame(columns=["user_id", "movie_id", "interaction"]) 
 
         if os.path.exists(INTERACTIONS_FILE) and os.path.getsize(INTERACTIONS_FILE) > 0:
@@ -252,12 +245,10 @@ def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = 
             if liked_genres:
                 genre_mask = pd.Series(True, index=candidates_df.index)
                 for g in liked_genres:
-                    # Check against the uppercase genres
+                    # Check against the Title-Cased genres (which are the column names)
                     if g in candidates_df.columns:
                         genre_mask &= (candidates_df[g] == 1)
                 candidates_df = candidates_df[genre_mask]
-            
-            # Removed the if liked_actors block
 
         candidates = candidates_df["movieid"].tolist()
         if not candidates:
@@ -283,7 +274,6 @@ def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = 
             avg_rating = movie_ratings.mean() if not movie_ratings.empty else None
             tags = tags_df[tags_df["movieid"] == mid]["tag"].value_counts().head(3).index.tolist()
             
-            # Use original genre string for output presentation
             genres_output = row["genres"].split("|") 
             
             enriched.append({
@@ -300,8 +290,7 @@ def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = 
 # -----------------------
 class RecommendRequest(BaseModel):
     username: str
-    liked_genres: List[str] = [] # These are now capitalized strings
-    # liked_actors removed
+    liked_genres: List[str] = [] 
     liked_movies: List[str] = []
     top_n: int = 5
 
@@ -329,9 +318,26 @@ def feedback_route(req: FeedbackRequest):
             df = pd.read_csv(INTERACTIONS_FILE)
         else:
             df = pd.DataFrame(columns=["user_id","movie_id","interaction"])
-        df = df[~((df["user_id"]==user_id)&(df["movie_id"]==req.movie_id))]
-        if req.interaction != "remove":
-            df = pd.concat([df, pd.DataFrame([{"user_id": user_id,"movie_id": req.movie_id,"interaction": req.interaction}])], ignore_index=True)
+        
+        # 1. If interaction is 'not_interested', we add it permanently and remove any previous interaction
+        if req.interaction == 'not_interested':
+            # Remove any existing interaction for this movie/user
+            df = df[~((df["user_id"]==user_id)&(df["movie_id"]==req.movie_id))] 
+            # Add the permanent 'not_interested' flag
+            new_row = {"user_id": user_id, "movie_id": req.movie_id, "interaction": req.interaction}
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+        
+        # 2. Handle 'remove' for Interested/Watched
+        elif req.interaction == 'remove':
+            df = df[~((df["user_id"]==user_id)&(df["movie_id"]==req.movie_id))]
+            
+        # 3. Handle 'interested' or 'watched'
+        else: 
+            # Remove any existing interaction first (toggle logic)
+            df = df[~((df["user_id"]==user_id)&(df["movie_id"]==req.movie_id))]
+            new_row = {"user_id": user_id,"movie_id": req.movie_id,"interaction": req.interaction}
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+            
         df.to_csv(INTERACTIONS_FILE, index=False)
     return {"status":"success"}
 
@@ -341,13 +347,12 @@ def get_history(username: str):
     history = []
 
     is_new_user = True
-    # Safe read of interaction file
     interactions_df = pd.DataFrame(columns=["user_id", "movie_id", "interaction"]) 
     if os.path.exists(INTERACTIONS_FILE) and os.path.getsize(INTERACTIONS_FILE) > 0:
         try:
             interactions_df = pd.read_csv(INTERACTIONS_FILE)
         except pd.errors.EmptyDataError:
-            pass # Keep empty DF
+            pass 
     
     user_rows = interactions_df[interactions_df["user_id"] == user_id]
     
@@ -355,6 +360,9 @@ def get_history(username: str):
         is_new_user = False
         if movies_df is not None:
             for mid, inter in zip(user_rows["movie_id"], user_rows["interaction"]):
+                # Skip 'not_interested' in history display
+                if inter == 'not_interested':
+                    continue 
                 row = movies_df[movies_df["movieid"] == mid]
                 if not row.empty:
                     row = row.iloc[0]
@@ -377,7 +385,6 @@ def warmup():
 def startup_event():
     load_data()
     load_model_checkpoint()
-    # load_top_actors removed
     print("✅ Startup complete")
 
 # -----------------------
@@ -391,14 +398,13 @@ def get_genres():
     if movies_df is None or tags_df is None:
         raise HTTPException(status_code=503, detail="Server data not yet available.")
         
-    # Content_cols contains the top 15 CAPITIALIZED genres (plus tags)
-    # Filter out tags to return only the capitalized genres
+    # Filter content_cols to return only the Top 15 Title-Cased genre names
+    genres = sorted([c for c in content_cols 
+                     if c not in tags_df.columns 
+                     and c not in ['movieid', 'title', 'genres']])
     
-    # We use tags_df.columns to filter out tag columns.
-    genres = sorted([c for c in content_cols if c not in tags_df.columns and c not in ['movieid', 'title', 'genres']])
-    return genres
-
-# @app.get("/actors") endpoint removed
+    # Final sanity check: ensure we only return the top 15 explicitly.
+    return genres[:TOP_GENRE_COUNT]
 
 @app.get("/movies")
 def get_top_movies():
@@ -412,25 +418,18 @@ def get_top_movies():
     # Weighted Rating Logic (Bayesian Average)
     # ----------------------------------------------------
     
-    # Step 1: Calculate Global Metrics (C and m)
     movie_stats = ratings_df.groupby("movieid")["rating"].agg(['count', 'mean']).reset_index()
     movie_stats.columns = ['movieid', 'v', 'R']
     
-    # Minimum number of votes required (m): 75th percentile of vote counts
     m = movie_stats['v'].quantile(0.75) 
-    
-    # Mean rating across ALL movies (C)
     C = movie_stats['R'].mean()
     
-    # Step 2: Merge and Filter
     qualified_movies = movie_stats[movie_stats['v'] >= m].copy()
     
     if qualified_movies.empty:
-        # Fallback to simple average if few movies meet the threshold
         print("⚠️ Not enough movies meet the 75th percentile vote threshold. Falling back to simple average ranking.")
         return get_top_movies_simple_fallback()
         
-    # Step 3: Calculate Weighted Rating (WR)
     def weighted_rating(row):
         v = row['v']
         R = row['R']
@@ -438,10 +437,8 @@ def get_top_movies():
         
     qualified_movies['weighted_rating'] = qualified_movies.apply(weighted_rating, axis=1)
     
-    # Step 4: Sort and Fetch Titles
     qualified_movies = qualified_movies.sort_values('weighted_rating', ascending=False).head(25)
     
-    # Join back to get the title
     final_list = pd.merge(qualified_movies, movies_df[['movieid', 'title']], on='movieid', how='left')
     
     return [title for title in final_list["title"].tolist()]
