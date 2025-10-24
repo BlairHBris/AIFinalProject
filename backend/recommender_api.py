@@ -159,14 +159,20 @@ def load_model_checkpoint():
     """Loads the PyTorch model and index mappings."""
     global model, user2idx, movie2idx
 
-    if movies_df is None: load_data() 
+    if movies_df is None: 
+        load_data() 
 
     if not os.path.exists(MODEL_FILE):
         print("⚠️ Model checkpoint not found.")
         return
 
     try:
-        chk = torch.load(MODEL_FILE, map_location=device)
+        # Allow old numpy/pickle objects from legacy PyTorch
+        import torch.serialization
+        torch.serialization.add_safe_globals([torch.LongTensor, torch.FloatTensor, np.float32, np.float64, np.int64, np.int32])
+
+        chk = torch.load(MODEL_FILE, map_location=device, weights_only=False)
+        
         user2idx.update(chk.get("user2idx", {}))
         movie2idx.update(chk.get("movie2idx", {}))
         
@@ -180,7 +186,7 @@ def load_model_checkpoint():
         print(f"✅ Loaded checkpoint from {MODEL_FILE}. Users: {len(user2idx)}, Movies: {len(movie2idx)}")
     except Exception as e:
         print(f"❌ Error loading model: {e}")
-        model = None 
+        model = None
 
 def get_or_create_user(username: str) -> int:
     """Gets existing user ID or creates a new one, thread-safe."""

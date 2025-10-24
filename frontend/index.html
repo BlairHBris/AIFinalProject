@@ -3,77 +3,60 @@
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>🎬 Movie Recommender</title>
-		<link rel="stylesheet" href="./style.css" />
+		<title>Movie Recommender</title>
+		<link rel="stylesheet" href="style.css" />
 	</head>
 	<body>
 		<div class="container">
-			<h1>🎬 Movie Recommender</h1>
+			<h1>🎬 Movie Recommender System</h1>
 
-			<div id="user-section">
-				<h3>User Login</h3>
-				<input id="username" placeholder="Enter your username" />
-				<div>
-					<label
-						><input type="radio" name="userMode" value="login" checked />
-						Existing User</label
-					>
-					<label
-						><input type="radio" name="userMode" value="new" /> New User</label
-					>
-				</div>
-				<button id="loginBtn">Submit</button>
+			<!-- === LOGIN SECTION === -->
+			<section id="login-section">
+				<h3>Login</h3>
+				<input id="username" type="text" placeholder="Enter your username" />
+				<button id="loginBtn">Login</button>
+				<button id="logoutBtn" style="display: inline-block">Logout</button>
 				<p id="user-info"></p>
-			</div>
+			</section>
 
-			<div id="recommend-section" style="display: none">
+			<!-- === RECOMMENDATION FILTERS === -->
+			<section id="recommend-section" style="display: none">
 				<h3>Get Recommendations</h3>
 
-				<div id="genre-section">
-					<h4>Select Genres</h4>
-					<div class="multi-select" id="genre-select-container">
-						<select id="genre-options" multiple size="5"></select>
-						<div class="selected-display">Select genres...</div>
-					</div>
-				</div>
-
-				<div id="movie-section">
-					<h4>Select Favorite Movies</h4>
-					<div class="multi-select" id="movie-select-container">
-						<select id="movie-options" multiple size="5"></select>
-						<div class="selected-display">Select movies...</div>
-					</div>
-				</div>
-
-				<div id="actor-section">
-					<h4>Select Actors</h4>
-					<div class="multi-select" id="actor-select-container">
-						<select id="actor-options" multiple size="5"></select>
-						<div class="selected-display">Select actors...</div>
-					</div>
-				</div>
-
+				<label for="type">Recommendation Type:</label>
 				<select id="type">
-					<option value="collab">Collaborative (PyTorch CF)</option>
-					<option value="hybrid">Hybrid</option>
 					<option value="content">Content-Based</option>
+					<option value="collaborative">Collaborative</option>
+					<option value="hybrid">Hybrid</option>
 				</select>
-				<button id="getRecsBtn">Recommend</button>
 
+				<h4>Genres</h4>
+				<select id="genre-options" multiple></select>
+
+				<h4>Actors</h4>
+				<select id="actor-options" multiple></select>
+
+				<h4>Movies You Liked</h4>
+				<select id="movie-options" multiple></select>
+
+				<button id="getRecsBtn">Get Recommendations</button>
+
+				<!-- === RECOMMENDATIONS OUTPUT === -->
+				<h3>Recommendations</h3>
 				<div id="recommendations"></div>
 
-				<h3>Your History</h3>
+				<!-- === HISTORY === -->
+				<h3>Your Interaction History</h3>
 				<div id="history"></div>
-
-				<button id="logoutBtn">Logout</button>
-			</div>
+			</section>
 		</div>
 
+		<!-- === LOADING SPINNER === -->
 		<div id="spinner">
 			<div class="spinner-inner"></div>
-			<div class="spinner-text">Loading...</div>
+			<p class="spinner-text">Fetching recommendations...</p>
 		</div>
 
-		<script src="./script.js"></script>
+		<script src="script.js"></script>
 	</body>
 </html>
