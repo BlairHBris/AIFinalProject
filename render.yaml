@@ -1,11 +1,11 @@
 services:
   # === Backend (FastAPI + Python) ===
   - type: web
-    name: movie-recommender-api
+    name: movie-recommender-backend
     env: python
+    plan: free
     buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn recommender_api:app --host 0.0.0.0 --port $PORT"
-    plan: free
     envVars:
       - key: FRONTEND_URL
         value: https://movie-recommender-frontend-nxw6.onrender.com
@@ -19,4 +19,4 @@ services:
     staticPublishPath: .
     envVars:
       - key: API_BASE_URL
-        value: https://movie-recommender-api.onrender.com
+        value: https://movie-recommender-backend.onrender.com
