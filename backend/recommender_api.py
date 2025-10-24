@@ -216,8 +216,13 @@ def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = 
     if movies_df is None or model is None:
         return []
 
-    with file_lock:
-        seen = set(pd.read_csv(INTERACTIONS_FILE)["movie_id"].astype(int)) if os.path.exists(INTERACTIONS_FILE) else set()
+with file_lock:
+    if os.path.exists(INTERACTIONS_FILE):
+        interactions_df = pd.read_csv(INTERACTIONS_FILE)
+        # User-specific seen movies
+        seen = set(interactions_df[interactions_df["user_id"]==user_id]["movie_id"].astype(int))
+    else:
+        seen = set()
 
     candidates_df = movies_df[~movies_df["movieid"].isin(seen)].copy()
 
@@ -327,6 +332,45 @@ def startup_event():
     load_data()
     load_model_checkpoint()
     print("✅ Startup complete")
+
+# -----------------------
+# Helper endpoints for frontend dropdowns
+# -----------------------
+
+@app.get("/genres")
+def get_genres():
+    if movies_df is None:
+        load_data()
+    genres = sorted([c for c in content_cols if c not in tags_df.columns])
+    return genres
+
+@app.get("/actors")
+def get_actors(top_n: int = 20):
+    if movies_df is None:
+        load_data()
+    # Extract actors from movies_df, split by comma
+    all_actors = movies_df["actors"].dropna().str.split(",").explode().str.strip()
+    top_actors = all_actors.value_counts().head(top_n).index.tolist()
+    return top_actors
+
+@app.get("/movies")
+def get_top_movies():
+    """Returns top 25 movies sorted by average rating for frontend dropdown."""
+    if movies_df is None or ratings_df is None:
+        load_data()
+
+    # Compute average ratings
+    avg_ratings = ratings_df.groupby("movieid")["rating"].mean()
+    
+    # Merge with movies_df
+    movies_copy = movies_df.copy()
+    movies_copy["avg_rating"] = movies_copy["movieid"].map(avg_ratings).fillna(0)
+    
+    # Sort descending by avg_rating and take top 25
+    top_movies = movies_copy.sort_values("avg_rating", ascending=False).head(25)
+    
+    # Return only titles
+    return [title for title in top_movies["title"].tolist()]
 
 # -----------------------
 # Main
