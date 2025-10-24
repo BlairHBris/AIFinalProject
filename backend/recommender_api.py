@@ -13,7 +13,7 @@ import pandas as pd
 import numpy as np
 import torch
 import torch.nn as nn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException # <--- FIX 1: HTTPException imported
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any
@@ -163,9 +163,17 @@ def load_top_actors():
     global top_actors_cache
     if movies_df is None:
         load_data()
+    
+    if movies_df is None:
+        print("⚠️ Cannot load actors: movies_df is None.")
+        return
+        
     all_actors = movies_df["actors"].dropna().str.split(",").explode().str.strip()
-    top_actors_cache = all_actors.value_counts().head(TOP_ACTORS_COUNT).index.tolist()
-    print(f"✅ Cached top {TOP_ACTORS_COUNT} actors")
+    if not all_actors.empty:
+        top_actors_cache[:] = all_actors.value_counts().head(TOP_ACTORS_COUNT).index.tolist()
+        print(f"✅ Cached top {len(top_actors_cache)} actors")
+    else:
+        print("⚠️ No actors data found.")
 
 def get_or_create_user(username: str) -> int:
     username = username.strip().lower()
@@ -262,7 +270,11 @@ def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = 
         top_preds = sorted(preds, key=lambda x: x[1], reverse=True)[:top_n]
         enriched = []
         for mid, _ in top_preds:
-            row = movies_df[movies_df["movieid"] == mid].iloc[0]
+            row_df = movies_df[movies_df["movieid"] == mid]
+            if row_df.empty:
+                continue
+            row = row_df.iloc[0]
+            
             movie_ratings = ratings_df[ratings_df["movieid"] == mid]["rating"]
             avg_rating = movie_ratings.mean() if not movie_ratings.empty else None
             tags = tags_df[tags_df["movieid"] == mid]["tag"].value_counts().head(3).index.tolist()
@@ -358,19 +370,39 @@ def startup_event():
 # -----------------------
 @app.get("/genres")
 def get_genres():
+    # Ensure data is fully loaded, including tags_df and content_cols
     if movies_df is None:
         load_data()
+        
+    # Check if essential dependencies were loaded successfully
+    if movies_df is None or tags_df is None:
+        # 503 Service Unavailable: Data not ready
+        raise HTTPException(status_code=503, detail="Server data not yet available.")
+        
+    # Logic to filter out tags from the content columns to get only genres
     genres = sorted([c for c in content_cols if c not in tags_df.columns])
     return genres
 
 @app.get("/actors")
 def get_actors(top_n: int = TOP_ACTORS_COUNT):
+    # Ensure actors cache is loaded
+    if not top_actors_cache:
+        load_top_actors()
+        
+    if not top_actors_cache:
+        raise HTTPException(status_code=503, detail="Actor data not available.")
+        
     return top_actors_cache[:top_n]
 
 @app.get("/movies")
 def get_top_movies():
+    # Ensure all data needed for rating calculation is loaded
     if movies_df is None or ratings_df is None:
         load_data()
+        
+    if movies_df is None or ratings_df is None:
+        raise HTTPException(status_code=503, detail="Movie or Rating data not available.")
+    
     avg_ratings = ratings_df.groupby("movieid")["rating"].mean()
     movies_copy = movies_df.copy()
     movies_copy["avg_rating"] = movies_copy["movieid"].map(avg_ratings).fillna(0)

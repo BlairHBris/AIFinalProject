@@ -11,6 +11,11 @@ const recommendationsDiv = document.getElementById("recommendations");
 const historyDiv = document.getElementById("history");
 const spinner = document.getElementById("spinner");
 
+// ------------------- INITIALIZE FILTERS -------------------
+window.addEventListener("DOMContentLoaded", async () => {
+	await loadFilters();
+});
+
 // ------------------- LOGIN -------------------
 loginButton.addEventListener("click", async () => {
 	const username = usernameInput.value.trim();
@@ -22,12 +27,12 @@ loginButton.addEventListener("click", async () => {
 		"existing";
 
 	try {
+		// Update UI visibility
 		loginSection.style.display = "none";
 		recommendSection.style.display = "block";
 		logoutButton.style.display = "block";
 
-		await loadFilters();
-
+		// Load history/greeting
 		if (userType === "new") {
 			historyDiv.innerHTML = "<p>Welcome, new user!</p>";
 		} else {
@@ -51,6 +56,7 @@ logoutButton.addEventListener("click", () => {
 
 // ------------------- FILTER OPTIONS -------------------
 async function loadFilters() {
+	// These functions now call the backend helper routes
 	await loadOptions("genre-options", "genres", "alpha");
 	await loadOptions("actor-options", "actors", "alpha");
 	await loadOptions("movie-options", "movies", "rating");
@@ -61,9 +67,19 @@ async function loadOptions(selectId, endpoint, sortType) {
 	select.innerHTML = "";
 	try {
 		const res = await fetch(`${API_BASE_URL}/${endpoint}`);
-		if (!res.ok) throw new Error(`Failed to fetch ${endpoint}`);
+		// Handle the HTTP 503 error case from the robust backend fix
+		if (!res.ok) {
+			const errorDetail = await res
+				.json()
+				.catch(() => ({ detail: "Unknown error" }));
+			throw new Error(
+				`Failed to fetch ${endpoint} (${res.status}): ${errorDetail.detail}`
+			);
+		}
+
 		let data = await res.json();
 
+		// Data sorting (retained from original logic)
 		if (sortType === "alpha") data.sort((a, b) => a.localeCompare(b));
 		else if (sortType === "rating") data = data.slice(0, 25);
 
@@ -73,44 +89,14 @@ async function loadOptions(selectId, endpoint, sortType) {
 			opt.textContent = item;
 			select.appendChild(opt);
 		});
+		console.log(`✅ Loaded ${selectId.split("-")[0]} options.`);
 	} catch (err) {
-		console.error(`Failed to load ${endpoint}:`, err);
+		console.error(`❌ Failed to load ${endpoint}:`, err);
+		select.innerHTML = `<option disabled>Error loading data</option>`;
 	}
 }
 
-// ------------------- ENABLE DROPDOWN SEARCH -------------------
-function enableSelectSearch(inputId, selectId) {
-	const input = document.getElementById(inputId);
-	const select = document.getElementById(selectId);
-
-	input.addEventListener("input", () => {
-		const filter = input.value.toLowerCase();
-		Array.from(select.options).forEach((opt) => {
-			opt.style.display = opt.text.toLowerCase().includes(filter) ? "" : "none";
-		});
-	});
-}
-
-enableSelectSearch("genre-search", "genre-options");
-enableSelectSearch("actor-search", "actor-options");
-enableSelectSearch("movie-search", "movie-options");
-
-// ------------------- CLEAR BUTTONS -------------------
-function enableClearButton(buttonId, selectId, searchId) {
-	const btn = document.getElementById(buttonId);
-	const select = document.getElementById(selectId);
-	const search = document.getElementById(searchId);
-
-	btn.addEventListener("click", () => {
-		Array.from(select.options).forEach((opt) => (opt.selected = false));
-		if (search) search.value = "";
-		Array.from(select.options).forEach((opt) => (opt.style.display = ""));
-	});
-}
-
-enableClearButton("clear-genres", "genre-options", "genre-search");
-enableClearButton("clear-actors", "actor-options", "actor-search");
-enableClearButton("clear-movies", "movie-options", "movie-search");
+// NOTE: enableSelectSearch, enableClearButton, and their calls are removed
 
 // ------------------- GET RECOMMENDATIONS -------------------
 document.getElementById("getRecsBtn").addEventListener("click", async () => {
@@ -162,15 +148,15 @@ function displayRecommendations(recs) {
 		const div = document.createElement("div");
 		div.className = "movie-card";
 		div.innerHTML = `
-			<span><strong>${m.title}</strong></span>
-			<em>Rating: ${m.avg_rating?.toFixed(2) ?? "N/A"}</em>
-			<em>Genres: ${m.genres.join(", ")}</em>
-			<em>Tags: ${m.top_tags.join(", ")}</em>
-			<div class="feedback-buttons">
-				<button class="feedback-btn" data-type="interested">Interested</button>
-				<button class="feedback-btn" data-type="watched">Watched</button>
-			</div>
-		`;
+            <span><strong>${m.title}</strong></span>
+            <em>Rating: ${m.avg_rating?.toFixed(2) ?? "N/A"}</em>
+            <em>Genres: ${m.genres.join(", ")}</em>
+            <em>Tags: ${m.top_tags.join(", ")}</em>
+            <div class="feedback-buttons">
+                <button class="feedback-btn" data-type="interested">Interested</button>
+                <button class="feedback-btn" data-type="watched">Watched</button>
+            </div>
+        `;
 		recommendationsDiv.appendChild(div);
 
 		const [interestedBtn, watchedBtn] = div.querySelectorAll(".feedback-btn");
@@ -236,10 +222,10 @@ function displayHistory(history) {
 		const div = document.createElement("div");
 		div.className = "movie-card";
 		div.innerHTML = `
-			<span><strong>${h.title}</strong></span>
-			<em>Interaction: ${h.interaction}</em>
-			<em>Genres: ${h.genres.join(", ")}</em>
-		`;
+            <span><strong>${h.title}</strong></span>
+            <em>Interaction: ${h.interaction}</em>
+            <em>Genres: ${h.genres.join(", ")}</em>
+        `;
 		historyDiv.appendChild(div);
 	});
 }
@@ -263,10 +249,10 @@ function updateHistoryLocal(movie, interaction) {
 		const div = document.createElement("div");
 		div.className = "movie-card";
 		div.innerHTML = `
-			<span><strong>${movie.title}</strong></span>
-			<em>Interaction: ${interaction}</em>
-			<em>Genres: ${movie.genres.join(", ")}</em>
-		`;
+            <span><strong>${movie.title}</strong></span>
+            <em>Interaction: ${interaction}</em>
+            <em>Genres: ${movie.genres.join(", ")}</em>
+        `;
 		historyDiv.appendChild(div);
 	}
 }

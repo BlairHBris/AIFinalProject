@@ -1,5 +1,5 @@
 /* =============================
-   General Page Styles
+    General Page Styles (No changes necessary here, keeping original structure)
 ============================= */
 body {
 	font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
@@ -30,7 +30,7 @@ h4 {
 }
 
 /* =============================
-   Inputs, Buttons, Selects
+    Inputs, Buttons, Selects
 ============================= */
 input[type="text"],
 select {
@@ -55,19 +55,11 @@ select[multiple] option:hover {
 	color: #fff;
 }
 
-/* Ensure search input and clear button remain readable */
-input[type="text"]::placeholder {
-	color: #999;
-	opacity: 1;
-}
-
-.clear-btn {
-	font-weight: bold;
-}
-
-/* Optional: slightly increase height for selected options for clarity */
+/* Ensure multi-select height is reasonable */
 select[multiple] {
 	height: 150px;
+	/* Reset width to 100% since it was inside a different container before */
+	width: 100%;
 }
 
 button {
@@ -92,7 +84,7 @@ button:disabled {
 }
 
 /* =============================
-   Feedback Buttons
+    Feedback Buttons (No changes necessary here)
 ============================= */
 .feedback-buttons {
 	margin-top: 8px;
@@ -113,14 +105,13 @@ button:disabled {
 	color: #fff;
 }
 
-/* “Watched” button separate color */
 .feedback-btn[data-type="watched"].active {
 	background-color: #ffc107;
 	color: #fff;
 }
 
 /* =============================
-   Recommendation / History Cards
+    Recommendation / History Cards (No changes necessary here)
 ============================= */
 .movie-card {
 	background: #f0f0f0;
@@ -142,43 +133,7 @@ button:disabled {
 }
 
 /* =============================
-   Recommendation Table
-============================= */
-.rec-table {
-	width: 100%;
-	border-collapse: collapse;
-	margin-top: 15px;
-}
-
-.rec-table th,
-.rec-table td {
-	border: 1px solid #ccc;
-	padding: 8px 10px;
-	text-align: left;
-}
-
-.rec-table th {
-	background-color: #007bff;
-	color: #fff;
-}
-
-.rec-table tr:nth-child(even) {
-	background-color: #f9f9f9;
-}
-
-/* =============================
-   Search Inputs / Clear Buttons
-============================= */
-.clear-btn {
-	background-color: #dc3545;
-}
-
-.clear-btn:hover {
-	background-color: #c82333;
-}
-
-/* =============================
-   Spinner
+    Spinner (No changes necessary here)
 ============================= */
 #spinner {
 	display: none;
