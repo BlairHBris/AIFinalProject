@@ -1,118 +1,151 @@
-// === Base URL (update this to match your Render backend) ===
+// === CONFIG ===
 const API_BASE_URL = window.location.hostname.includes("localhost")
 	? "http://127.0.0.1:8000"
-	: "https://movie-recommender-backend.onrender.com"; // ✅ adjust if your backend URL differs
+	: "https://movie-recommender-backend.onrender.com";
 
 let currentUsername = null;
 
-// === Spinner control ===
-function showSpinner(show) {
-	const spinner = document.getElementById("spinner");
-	if (show) {
-		spinner.classList.add("show");
-		spinner.style.display = "flex";
-	} else {
-		spinner.classList.remove("show");
-		setTimeout(() => (spinner.style.display = "none"), 300);
-	}
-}
+// === DOM ELEMENTS ===
+const loginSection = document.getElementById("login-section");
+const recommendSection = document.getElementById("recommend-section");
+const usernameInput = document.getElementById("username");
+const loginBtn = document.getElementById("loginBtn");
+const logoutBtn = document.getElementById("logoutBtn");
+const recommendationsDiv = document.getElementById("recommendations");
+const historyDiv = document.getElementById("history");
 
-// === Populate dropdown options ===
-async function populateOptions() {
-	const GENRES = [
+// === LOGIN ===
+loginBtn.addEventListener("click", async () => {
+	const username = usernameInput.value.trim();
+	if (!username) return alert("Please enter a username!");
+
+	currentUsername = username.toLowerCase();
+	localStorage.setItem("username", currentUsername);
+
+	try {
+		await fetch(`${API_BASE_URL}/users/${currentUsername}/login`, {
+			method: "POST",
+		});
+
+		loginSection.style.display = "none";
+		recommendSection.style.display = "block";
+		logoutBtn.style.display = "inline-block";
+
+		await loadFilters();
+		await loadHistory();
+	} catch (err) {
+		console.error("❌ Login error:", err);
+		alert("Failed to log in. Please try again.");
+	}
+});
+
+// === LOGOUT ===
+logoutBtn.addEventListener("click", () => {
+	currentUsername = null;
+	localStorage.removeItem("username");
+	usernameInput.value = "";
+	loginSection.style.display = "block";
+	recommendSection.style.display = "none";
+	logoutBtn.style.display = "none";
+	recommendationsDiv.innerHTML = "";
+	historyDiv.innerHTML = "";
+});
+
+// === FETCH FILTER OPTIONS ===
+async function loadFilters() {
+	await populateSelect("genre-options", [
 		"Action",
 		"Adventure",
 		"Animation",
-		"Children",
 		"Comedy",
 		"Crime",
-		"Documentary",
 		"Drama",
+		"Documentary",
 		"Fantasy",
-		"Film-Noir",
 		"Horror",
-		"Musical",
-		"Mystery",
 		"Romance",
 		"Sci-Fi",
 		"Thriller",
 		"War",
 		"Western",
-	];
-	const ACTORS = [
-		"Nicolas Cage",
+	]);
+	await populateSelect("actor-options", [
 		"Tom Hanks",
-		"Scarlett Johansson",
 		"Leonardo DiCaprio",
+		"Scarlett Johansson",
 		"Meryl Streep",
 		"Brad Pitt",
-		"Emma Watson",
+		"Nicolas Cage",
+		"Emma Stone",
 		"Johnny Depp",
-	];
-	const MOVIES = [
+	]);
+	await populateSelect("movie-options", [
 		"Toy Story (1995)",
-		"Jumanji (1995)",
-		"Grumpier Old Men (1995)",
-		"Waiting to Exhale (1995)",
-		"Father of the Bride Part II (1995)",
 		"Heat (1995)",
-		"Sabrina (1995)",
 		"GoldenEye (1995)",
 		"Casino (1995)",
 		"Sense and Sensibility (1995)",
 		"Four Rooms (1995)",
-		"Ace Ventura: When Nature Calls (1995)",
-		"Money Train (1995)",
-	];
-
-	function fillSelect(id, list) {
-		const select = document.getElementById(id);
-		list.forEach((v) => {
-			const opt = document.createElement("option");
-			opt.value = v;
-			opt.textContent = v;
-			select.appendChild(opt);
-		});
-	}
-
-	fillSelect("genre-options", GENRES);
-	fillSelect("actor-options", ACTORS);
-	fillSelect("movie-options", MOVIES);
+		"Jumanji (1995)",
+	]);
 }
 
-// === Login ===
-document.getElementById("loginBtn").addEventListener("click", async () => {
-	const usernameInput = document.getElementById("username").value.trim();
-	if (!usernameInput) return alert("Enter a username!");
+// === POPULATE SELECT ===
+function populateSelect(selectId, items) {
+	const select = document.getElementById(selectId);
+	select.innerHTML = "";
+	items.forEach((item) => {
+		const opt = document.createElement("option");
+		opt.value = item;
+		opt.textContent = item;
+		select.appendChild(opt);
+	});
+}
 
-	currentUsername = usernameInput.toLowerCase();
-	localStorage.setItem("username", currentUsername);
+// === FILTER SEARCH ===
+function enableSelectSearch(inputId, selectId) {
+	const input = document.getElementById(inputId);
+	const select = document.getElementById(selectId);
 
-	document.getElementById(
-		"user-info"
-	).textContent = `Welcome, ${currentUsername}!`;
-	document.getElementById("recommend-section").style.display = "block";
-	await loadHistory();
-});
+	input.addEventListener("input", () => {
+		const filter = input.value.toLowerCase();
+		Array.from(select.options).forEach((opt) => {
+			opt.style.display = opt.text.toLowerCase().includes(filter) ? "" : "none";
+		});
+	});
+}
 
-// === Get Recommendations ===
+enableSelectSearch("genre-search", "genre-options");
+enableSelectSearch("actor-search", "actor-options");
+enableSelectSearch("movie-search", "movie-options");
+
+// === CLEAR BUTTONS ===
+function enableClearButton(buttonId, selectId, searchId) {
+	const btn = document.getElementById(buttonId);
+	const select = document.getElementById(selectId);
+	const search = document.getElementById(searchId);
+
+	btn.addEventListener("click", () => {
+		Array.from(select.options).forEach((opt) => (opt.selected = false));
+		search.value = "";
+		Array.from(select.options).forEach((opt) => (opt.style.display = ""));
+	});
+}
+
+enableClearButton("clear-genres", "genre-options", "genre-search");
+enableClearButton("clear-actors", "actor-options", "actor-search");
+enableClearButton("clear-movies", "movie-options", "movie-search");
+
+// === RECOMMENDATION HANDLER ===
 document.getElementById("getRecsBtn").addEventListener("click", async () => {
 	if (!currentUsername) return alert("Please log in first!");
 
-	const genres = Array.from(
-		document.querySelectorAll("#genre-options option:checked")
-	).map((o) => o.value);
-	const actors = Array.from(
-		document.querySelectorAll("#actor-options option:checked")
-	).map((o) => o.value);
-	const movies = Array.from(
-		document.querySelectorAll("#movie-options option:checked")
-	).map((o) => o.value);
 	const type = document.getElementById("type").value;
+	const genres = getSelectedValues("genre-options");
+	const actors = getSelectedValues("actor-options");
+	const movies = getSelectedValues("movie-options");
 
-	const container = document.getElementById("recommendations");
-	container.innerHTML = "<em>Loading recommendations...</em>";
-	showSpinner(true);
+	recommendationsDiv.innerHTML = "<em>Fetching recommendations...</em>";
 
 	try {
 		const res = await fetch(`${API_BASE_URL}/recommend/${type}`, {
@@ -130,128 +163,94 @@ document.getElementById("getRecsBtn").addEventListener("click", async () => {
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 		const data = await res.json();
 
-		container.innerHTML = "";
-		data.recommendations.forEach((m) => {
-			const div = document.createElement("div");
-			div.className = "movie-card";
-			div.innerHTML = `
-				<span><strong>${m.title}</strong></span>
-				<em>Rating: ${m.avg_rating?.toFixed(2) ?? "N/A"}</em>
-				<em>Genres: ${m.genres.join(", ")}</em>
-				<em>Tags: ${m.top_tags.join(", ")}</em>
-				<div>
-					<button class="feedback-btn" data-type="interested">Interested</button>
-					<button class="feedback-btn" data-type="watched">Watched</button>
-				</div>
-			`;
-			container.appendChild(div);
-
-			const [interestedBtn, watchedBtn] = div.querySelectorAll(".feedback-btn");
-
-			async function handleToggle(button, type) {
-				const isActive = button.classList.contains("active");
-				if (isActive) {
-					button.classList.remove("active");
-					button.textContent = type.charAt(0).toUpperCase() + type.slice(1);
-					await sendFeedback(m.movieId, type, false);
-				} else {
-					button.classList.add("active");
-					button.textContent =
-						type === "interested" ? "Marked Interested" : "Marked Watched";
-					await sendFeedback(m.movieId, type, true);
-				}
-				await loadHistory();
-			}
-
-			interestedBtn.addEventListener("click", () =>
-				handleToggle(interestedBtn, "interested")
-			);
-			watchedBtn.addEventListener("click", () =>
-				handleToggle(watchedBtn, "watched")
-			);
-		});
-	} catch (e) {
-		console.error("❌ Recommendation error:", e);
-		container.innerHTML = "<em>Failed to load recommendations.</em>";
-	} finally {
-		showSpinner(false);
+		displayRecommendations(data.recommendations || []);
+		await loadHistory();
+	} catch (err) {
+		console.error("❌ Recommendation error:", err);
+		recommendationsDiv.innerHTML = "<p>Failed to load recommendations.</p>";
 	}
 });
 
-// === Feedback API ===
-async function sendFeedback(movieId, type, add = true) {
-	if (!currentUsername) return;
-	try {
-		await fetch(`${API_BASE_URL}/feedback`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				username: currentUsername,
-				movie_id: parseInt(movieId),
-				interaction: add ? type : "remove",
-			}),
-		});
-	} catch (e) {
-		console.error("❌ Feedback error:", e);
+// === DISPLAY RECOMMENDATIONS ===
+function displayRecommendations(recs) {
+	recommendationsDiv.innerHTML = "";
+	if (!recs.length) {
+		recommendationsDiv.innerHTML = "<p>No recommendations found.</p>";
+		return;
 	}
+
+	const table = document.createElement("table");
+	table.classList.add("rec-table");
+
+	const header = document.createElement("tr");
+	["#", "Title", "Genres", "Rating"].forEach((h) => {
+		const th = document.createElement("th");
+		th.textContent = h;
+		header.appendChild(th);
+	});
+	table.appendChild(header);
+
+	recs.forEach((rec, i) => {
+		const tr = document.createElement("tr");
+		tr.innerHTML = `
+			<td>${i + 1}</td>
+			<td>${rec.title || "N/A"}</td>
+			<td>${rec.genres?.join(", ") || "—"}</td>
+			<td>${rec.avg_rating ? rec.avg_rating.toFixed(2) : "—"}</td>
+		`;
+		table.appendChild(tr);
+	});
+
+	recommendationsDiv.appendChild(table);
 }
 
-// === Load history ===
+// === LOAD HISTORY ===
 async function loadHistory() {
+	historyDiv.innerHTML = "<em>Loading history...</em>";
 	if (!currentUsername) return;
-	const div = document.getElementById("history");
-	div.innerHTML = "<em>Loading...</em>";
 
 	try {
 		const res = await fetch(`${API_BASE_URL}/users/${currentUsername}/history`);
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 		const data = await res.json();
-		div.innerHTML = "";
 
-		if (!data.history.length) {
-			div.innerHTML = "<em>No history yet.</em>";
+		if (!data.history?.length) {
+			historyDiv.innerHTML = "<p>No history yet.</p>";
 			return;
 		}
 
-		data.history.forEach((h) => {
-			const item = document.createElement("div");
-			item.className = "movie-card";
-			item.innerHTML = `
-				<span>${h.title}</span>
-				<em>${h.interaction}</em>
-				<em>Genres: ${h.genres.join(", ")}</em>
-			`;
-			div.appendChild(item);
+		const list = document.createElement("ul");
+		data.history.forEach((item) => {
+			const li = document.createElement("li");
+			li.textContent = `${item.title} — ${item.interaction}`;
+			list.appendChild(li);
 		});
-	} catch (e) {
-		console.error("⚠️ Failed to load history:", e);
-		div.innerHTML = "<em>No history yet.</em>";
+		historyDiv.innerHTML = "";
+		historyDiv.appendChild(list);
+	} catch (err) {
+		console.error("⚠️ Failed to load history:", err);
+		historyDiv.innerHTML = "<p>Failed to load history.</p>";
 	}
 }
 
-// === Logout ===
-document.getElementById("logoutBtn").addEventListener("click", () => {
-	localStorage.removeItem("username");
-	currentUsername = null;
-	document.getElementById("username").value = "";
-	document.getElementById("recommend-section").style.display = "none";
-	document.getElementById("user-info").textContent = "";
-	document.getElementById("recommendations").innerHTML = "";
-	document.getElementById("history").innerHTML = "";
-});
+// === UTIL ===
+function getSelectedValues(selectId) {
+	return Array.from(document.getElementById(selectId).selectedOptions).map(
+		(opt) => opt.value
+	);
+}
 
-// === On load ===
+// === AUTO LOGIN ON PAGE LOAD ===
 window.addEventListener("DOMContentLoaded", async () => {
-	await populateOptions();
+	const saved = localStorage.getItem("username");
+	if (saved) {
+		currentUsername = saved;
+		usernameInput.value = saved;
+		loginSection.style.display = "none";
+		recommendSection.style.display = "block";
+		logoutBtn.style.display = "inline-block";
 
-	const savedUser = localStorage.getItem("username");
-	if (savedUser) {
-		currentUsername = savedUser;
-		document.getElementById("username").value = savedUser;
-		document.getElementById(
-			"user-info"
-		).textContent = `Welcome back, ${savedUser}!`;
-		document.getElementById("recommend-section").style.display = "block";
+		await loadFilters();
 		await loadHistory();
 	}
 });

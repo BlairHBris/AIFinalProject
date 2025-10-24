@@ -3,7 +3,7 @@
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>Movie Recommender</title>
+		<title>🎬 Movie Recommender</title>
 		<link rel="stylesheet" href="style.css" />
 	</head>
 	<body>
@@ -14,8 +14,10 @@
 			<section id="login-section">
 				<h3>Login</h3>
 				<input id="username" type="text" placeholder="Enter your username" />
-				<button id="loginBtn">Login</button>
-				<button id="logoutBtn" style="display: inline-block">Logout</button>
+				<div style="margin-top: 0.5rem">
+					<button id="loginBtn">Login</button>
+					<button id="logoutBtn" style="display: inline-block">Logout</button>
+				</div>
 				<p id="user-info"></p>
 			</section>
 
@@ -26,19 +28,53 @@
 				<label for="type">Recommendation Type:</label>
 				<select id="type">
 					<option value="content">Content-Based</option>
-					<option value="collaborative">Collaborative</option>
+					<option value="collab">Collaborative</option>
 					<option value="hybrid">Hybrid</option>
 				</select>
 
-				<h4>Genres</h4>
-				<select id="genre-options" multiple></select>
+				<!-- === GENRES === -->
+				<div class="filter-box">
+					<div class="filter-controls">
+						<input
+							type="text"
+							id="genre-search"
+							placeholder="Search genres..."
+						/>
+						<button class="clear-btn" id="clear-genres">Clear</button>
+					</div>
+					<label for="genre-options">Select Genres:</label>
+					<select id="genre-options" multiple></select>
+				</div>
 
-				<h4>Actors</h4>
-				<select id="actor-options" multiple></select>
+				<!-- === ACTORS === -->
+				<div class="filter-box">
+					<div class="filter-controls">
+						<input
+							type="text"
+							id="actor-search"
+							placeholder="Search actors..."
+						/>
+						<button class="clear-btn" id="clear-actors">Clear</button>
+					</div>
+					<label for="actor-options">Select Actors:</label>
+					<select id="actor-options" multiple></select>
+				</div>
 
-				<h4>Movies You Liked</h4>
-				<select id="movie-options" multiple></select>
+				<!-- === MOVIES === -->
+				<div class="filter-box">
+					<div class="filter-controls">
+						<input
+							type="text"
+							id="movie-search"
+							placeholder="Search movies..."
+						/>
+						<button class="clear-btn" id="clear-movies">Clear</button>
+					</div>
+					<label for="movie-options">Select Movies You Liked:</label>
+					<select id="movie-options" multiple></select>
+				</div>
 
+				<!-- === BUTTON === -->
 				<button id="getRecsBtn">Get Recommendations</button>
 
 				<!-- === RECOMMENDATIONS OUTPUT === -->
