@@ -29,7 +29,7 @@ MODEL_FILE = "torch_recommender.pt"
 
 # Evaluation Hyperparameters
 K = 10  # Number of recommendations to consider for P@K and NDCG@K
-RELEVANCE_THRESHOLD = 3.5  # Rating >= 3.5 means the user "liked" the movie (relevant)
+RELEVANCE_THRESHOLD = 4.0  # Rating >= 4.0 means the user "liked" the movie (relevant)
 TEST_SIZE = 0.2  # Fraction of ratings to use for the test set
 EMBEDDING_DIM = 32
 
