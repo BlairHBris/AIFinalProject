@@ -4,6 +4,7 @@ Movie Recommender API (Final Production Version)
 - Top Movies ranked by Weighted Rating (Bayesian Average).
 - PyTorch model loading fixed (weights_only=False).
 - Actor functionality removed entirely.
+- FIX: Implemented Content Profile Similarity Boost based on user history and selections.
 """
 
 import os
@@ -182,6 +183,43 @@ def get_or_create_user(username: str) -> int:
         users_df = pd.concat([users_df, pd.DataFrame([{"user_id": new_id, "username": username}])], ignore_index=True)
         users_df.to_csv(USERS_FILE, index=False)
         return new_id
+    
+# --- NEW/MODIFIED UTILITY FUNCTIONS FOR CONTENT PROFILE ---
+def get_history_content_vector(user_id: int) -> np.ndarray:
+    """Calculates an average feature vector from a user's 'interested' or 'watched' history."""
+    if movies_features is None:
+        return np.zeros((len(content_cols),), dtype=np.float32)
+        
+    with file_lock:
+        interactions_df = pd.DataFrame(columns=["user_id", "movie_id", "interaction"]) 
+        if os.path.exists(INTERACTIONS_FILE) and os.path.getsize(INTERACTIONS_FILE) > 0:
+            try:
+                interactions_df = pd.read_csv(INTERACTIONS_FILE)
+            except pd.errors.EmptyDataError:
+                pass 
+    
+    # Filter for 'interested' or 'watched' interactions (positive signals)
+    positive_interactions = interactions_df[
+        (interactions_df["user_id"] == user_id) & 
+        (interactions_df["interaction"].isin(['interested', 'watched']))
+    ]
+
+    if positive_interactions.empty:
+        return np.zeros((len(content_cols),), dtype=np.float32)
+
+    # Get the features for these movies
+    positive_movie_ids = positive_interactions["movie_id"].astype(int).tolist()
+    
+    liked_features = [movies_features.iloc[movieid2row[mid]].values 
+                      for mid in positive_movie_ids 
+                      if mid in movieid2row]
+
+    if not liked_features:
+        return np.zeros((len(content_cols),), dtype=np.float32)
+
+    # Average the feature vectors to create a content profile
+    return np.mean(np.stack(liked_features), axis=0).astype(np.float32)
+
 
 def get_content_vector_from_titles(liked_movies_titles: List[str]) -> np.ndarray:
     if movies_features is None or not liked_movies_titles:
@@ -196,6 +234,8 @@ def get_content_vector_from_titles(liked_movies_titles: List[str]) -> np.ndarray
         return np.zeros((len(content_cols),), dtype=np.float32)
 
     return np.mean(np.stack(liked_features), axis=0).astype(np.float32)
+# --- END NEW/MODIFIED UTILITY FUNCTIONS ---
+
 
 def predict_batch(user_idx_int: int, movie_id_batch: List[int], user_content_features: np.ndarray = None, mode: str = 'hybrid') -> np.ndarray:
     if model is None or movies_features is None:
@@ -222,11 +262,13 @@ def predict_batch(user_idx_int: int, movie_id_batch: List[int], user_content_fea
         preds = model(u, m, f)
     return preds.cpu().numpy()
 
+
+# --- MODIFIED recommend_for_user ---
 def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = [], liked_movies: List[str] = [], rec_type: str = "hybrid") -> List[Dict[str, Any]]:
     if movies_df is None or model is None:
         return []
 
-    # --- 1. Get Seen Movies & Initialize Candidates (No Change) ---
+    # --- 1. Get Seen Movies & Initialize Candidates (Exclusion Logic) ---
     with file_lock:
         seen = set()
         interactions_df = pd.DataFrame(columns=["user_id", "movie_id", "interaction"]) 
@@ -236,11 +278,10 @@ def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = 
             except pd.errors.EmptyDataError:
                 pass 
         
+        # EXCLUSION: Identify all movies user has interacted with
         seen = set(interactions_df[interactions_df["user_id"]==user_id]["movie_id"].astype(int))
         # Candidates are ALL unseen movies
         candidates_df = movies_df[~movies_df["movieid"].isin(seen)].copy()
-
-        # 🛑 REMOVE HARD FILTER: Delete the entire block that uses liked_genres to subset candidates_df
 
         candidates = candidates_df["movieid"].tolist()
         if not candidates:
@@ -255,39 +296,77 @@ def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = 
         scores = predict_batch(u_idx, batch, mode=rec_type)
         preds.extend(zip(batch, scores))
 
-    # --- 3. APPLY SOFT BIASING (NEW LOGIC) ---
+    # --- 3. APPLY SOFT BIASING (UPDATED LOGIC: Genre + Similarity Boost) ---
     final_scores = []
-    GENRE_BOOST = 0.5 # <--- TWEAK THIS: Amount to boost the predicted score by
+    GENRE_BOOST = 0.5 # TWEAK THIS: Max boost amount 
 
+    # NEW: Calculate content profile from Liked Movies and History
+    if rec_type != 'collab':
+        
+        # 3a. Get content vector from explicitly selected movies
+        liked_movies_vector = get_content_vector_from_titles(liked_movies)
+
+        # 3b. Get content vector from positive interaction history
+        history_vector = get_history_content_vector(user_id)
+        
+        # 3c. Combine vectors (simple average of explicit and history signals)
+        vectors = [v for v in [liked_movies_vector, history_vector] if np.any(v != 0)]
+        if vectors:
+            user_content_profile = np.mean(np.stack(vectors), axis=0).astype(np.float32)
+            # Normalize the combined vector for cosine similarity scaling
+            user_content_profile = user_content_profile / (np.linalg.norm(user_content_profile) + 1e-6)
+        else:
+            user_content_profile = np.zeros((len(content_cols),), dtype=np.float32)
+    else:
+        user_content_profile = np.zeros((len(content_cols),), dtype=np.float32)
+
+
+    # 3d. Apply soft bias based on selected Genres AND Content Profile Similarity
     for mid, score in preds:
-        movie_row_df = movies_df[movies_df["movieid"] == mid]
+        movie_row_df = candidates_df[candidates_df["movieid"] == mid]
         if movie_row_df.empty:
             continue
             
         movie_row = movie_row_df.iloc[0]
         
-        boost = 0.0
-        if liked_genres and rec_type != 'collab':
-            # Check how many selected genres the movie matches
+        # --- 3d(i) Genre Selection Boost (Existing Logic) ---
+        genre_boost = 0.0
+        if liked_genres:
             match_count = 0
+            # Use the explicit selected genres for a direct, simple boost
             for g in liked_genres:
-                # Check if the Title-Cased genre column exists and has a value of 1
                 if g in candidates_df.columns and movie_row.get(g, 0) == 1:
                     match_count += 1
+            genre_boost = (match_count / len(liked_genres)) * GENRE_BOOST
+        
+        # --- 3d(ii) Content Profile Similarity Boost (NEW LOGIC) ---
+        # This uses the combination of liked movies AND positive history
+        similarity_boost = 0.0
+        if np.any(user_content_profile != 0) and rec_type != 'collab':
             
-            # Apply a boost proportional to the number of matched genres
-            # Example: Max boost is 0.5, divided by total liked genres
-            boost = (match_count / len(liked_genres)) * GENRE_BOOST
+            # Get the candidate movie's feature vector
+            movie_features_vector = movies_features.iloc[movieid2row[mid]].values
+            
+            # Calculate Cosine Similarity (Dot product of normalized vectors)
+            movie_features_vector_norm = movie_features_vector / (np.linalg.norm(movie_features_vector) + 1e-6)
+            
+            similarity = np.dot(user_content_profile, movie_features_vector_norm)
+            
+            # Scale the similarity (0 to 1) by GENRE_BOOST (Max 0.5 boost)
+            similarity_boost = np.clip(similarity, 0, 1) * GENRE_BOOST
+
+
+        # Total Boost: Combine the explicit genre match and the feature similarity score
+        total_boost = genre_boost + similarity_boost
             
         # Add boost to the predicted score
-        final_scores.append((mid, score + boost))
+        final_scores.append((mid, score + total_boost))
 
     # --- 4. Sort and Enrich Results ---
     top_preds = sorted(final_scores, key=lambda x: x[1], reverse=True)[:top_n]
     
     enriched = []
-    for mid, final_score in top_preds: # Use final_score if you want to display the boosted score
-        # ... (Enrichment logic remains the same) ...
+    for mid, final_score in top_preds:
         row_df = movies_df[movies_df["movieid"] == mid]
         if row_df.empty: continue
         row = row_df.iloc[0]
@@ -305,6 +384,7 @@ def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = 
             "top_tags": tags
         })
     return enriched
+
 
 # -----------------------
 # Pydantic Models

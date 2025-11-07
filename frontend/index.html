@@ -16,20 +16,15 @@
 				<button id="loginButton">Login</button>
 				<button id="logoutButton" style="display: none">Logout</button>
 			</section>
-			<label
-				><input type="radio" name="userType" value="existing" checked />
-				Existing User</label
-			>
-			<label><input type="radio" name="userType" value="new" /> New User</label>
 
 			<section id="recommend-section" style="display: none">
 				<h3>Get Recommendations</h3>
 
 				<label for="type">Recommendation Type:</label>
 				<select id="type">
-					<option value="content">Content-Based</option>
-					<option value="collab">Collaborative</option>
-					<option value="hybrid">Hybrid</option>
+					<option value="hybrid">Hybrid (Default)</option>
+					<option value="content">Movies based on what you like</option>
+					<option value="collab">Movies based on similar users</option>
 				</select>
 
 				<h4>Genres (Ctrl/Cmd + Click for multiple)</h4>
@@ -43,7 +38,6 @@
 				<h3>Recommendations</h3>
 				<div id="recommendations"></div>
 
-				<h3>Your Interaction History</h3>
 				<div id="history"></div>
 			</section>
 		</div>

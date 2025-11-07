@@ -175,3 +175,14 @@ button:disabled {
 		transform: rotate(360deg);
 	}
 }
+
+.history-group {
+    border-top: 1px solid #ddd; /* Separator line between the two groups */
+    padding-top: 15px;
+    margin-top: 15px;
+}
+
+.history-group h4 {
+    color: #007bff; /* Highlight the new group headers */
+    margin-bottom: 10px;
+}
