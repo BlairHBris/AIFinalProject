@@ -30,6 +30,7 @@ USERS_FILE = os.path.join(BASE_DIR, "users.csv")
 INTERACTIONS_FILE = os.path.join(BASE_DIR, "user_interactions.csv")
 MODEL_FILE = os.path.join(BASE_DIR, "torch_recommender.pt")
 TOP_GENRE_COUNT = 20 
+TOP_MOVIE_COUNT = 20 
 
 FRONTEND_URLS = [
     "http://localhost:3000",
@@ -513,6 +514,10 @@ def get_genres():
     genre_counts = all_genres_list.value_counts()
     top_genres = genre_counts.head(TOP_GENRE_COUNT).index.tolist()
 
+    # Remove no genre option
+    if "(No Genres Listed)" in top_genres:
+        top_genres.remove("(No Genres Listed)")
+
     # Sort and return
     genres_to_return = sorted(top_genres)
 
@@ -533,13 +538,13 @@ def get_top_movies():
     movie_stats = ratings_df.groupby("movieid")["rating"].agg(['count', 'mean']).reset_index()
     movie_stats.columns = ['movieid', 'v', 'R']
     
-    m = movie_stats['v'].quantile(0.75) 
+    m = movie_stats['v'].quantile(0.60) 
     C = movie_stats['R'].mean()
     
     qualified_movies = movie_stats[movie_stats['v'] >= m].copy()
     
     if qualified_movies.empty:
-        print("⚠️ Not enough movies meet the 75th percentile vote threshold. Falling back to simple average ranking.")
+        print("⚠️ Not enough movies meet the 60th percentile vote threshold. Falling back to simple average ranking.")
         return get_top_movies_simple_fallback()
         
     def weighted_rating(row):
@@ -549,7 +554,7 @@ def get_top_movies():
         
     qualified_movies['weighted_rating'] = qualified_movies.apply(weighted_rating, axis=1)
     
-    qualified_movies = qualified_movies.sort_values('weighted_rating', ascending=False).head(25)
+    qualified_movies = qualified_movies.sort_values('weighted_rating', ascending=False).head(TOP_MOVIE_COUNT)
     
     final_list = pd.merge(qualified_movies, movies_df[['movieid', 'title']], on='movieid', how='left')
     
@@ -560,7 +565,7 @@ def get_top_movies_simple_fallback():
     avg_ratings = ratings_df.groupby("movieid")["rating"].mean()
     movies_copy = movies_df.copy()
     movies_copy["avg_rating"] = movies_copy["movieid"].map(avg_ratings).fillna(0)
-    top_movies = movies_copy.sort_values("avg_rating", ascending=False).head(25)
+    top_movies = movies_copy.sort_values("avg_rating", ascending=False).head(TOP_MOVIE_COUNT)
     return [title for title in top_movies["title"].tolist()]
 
 # -----------------------

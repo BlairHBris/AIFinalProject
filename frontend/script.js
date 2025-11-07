@@ -266,7 +266,7 @@ async function loadHistory() {
         const data = await res.json();
 
         if (data.is_new_user) {
-            historyDiv.innerHTML = "<p>Welcome, new user!</p>";
+            historyDiv.innerHTML = "";
             return;
         }
 
