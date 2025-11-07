@@ -1,19 +1,10 @@
-"""
-Movie Recommender API (Final Production Version)
-- Genres standardized (top 15, Title Case).
-- Top Movies ranked by Weighted Rating (Bayesian Average).
-- PyTorch model loading fixed (weights_only=False).
-- Actor functionality removed entirely.
-- FIX: Implemented Content Profile Similarity Boost based on user history and selections.
-- FIX: GENRE_BOOST increased from 0.5 to 1.0 for stronger content influence.
-"""
-
 import os
 import threading
 import pandas as pd
 import numpy as np
 import torch
 import torch.nn as nn
+import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -31,6 +22,10 @@ INTERACTIONS_FILE = os.path.join(BASE_DIR, "user_interactions.csv")
 MODEL_FILE = os.path.join(BASE_DIR, "torch_recommender.pt")
 TOP_GENRE_COUNT = 20 
 TOP_MOVIE_COUNT = 20 
+TMDB_API_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiIzNTg2YTg2MWI2MmM3ZDczNzM5MWM0MTgyNzhmODIwNSIsIm5iZiI6MTc2MjU0OTIwOS44NTQsInN1YiI6IjY5MGU1ZGQ5YTc3MGZmMzhjNWMwNTMxZSIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.liYjcu3qm4JdIGhVjmchD2zebG-JCQQvjarTSVVRDd8"
+TMDB_BASE_URL = "https://api.themoviedb.org/3"
+TMDB_POSTER_BASE = "https://image.tmdb.org/t/p/w200"
+FALLBACK_POSTER_URL = "https://share.google/images/CwmjIgjQp5v8fRZsP"
 
 FRONTEND_URLS = [
     "http://localhost:3000",
@@ -185,7 +180,6 @@ def get_or_create_user(username: str) -> int:
         users_df.to_csv(USERS_FILE, index=False)
         return new_id
     
-# --- NEW/MODIFIED UTILITY FUNCTIONS FOR CONTENT PROFILE ---
 def get_history_content_vector(user_id: int) -> np.ndarray:
     """Calculates an average feature vector from a user's 'interested' or 'watched' history."""
     if movies_features is None:
@@ -212,8 +206,8 @@ def get_history_content_vector(user_id: int) -> np.ndarray:
     positive_movie_ids = positive_interactions["movie_id"].astype(int).tolist()
     
     liked_features = [movies_features.iloc[movieid2row[mid]].values 
-                      for mid in positive_movie_ids 
-                      if mid in movieid2row]
+                    for mid in positive_movie_ids 
+                    if mid in movieid2row]
 
     if not liked_features:
         return np.zeros((len(content_cols),), dtype=np.float32)
@@ -264,8 +258,8 @@ def predict_batch(user_idx_int: int, movie_id_batch: List[int], user_content_fea
     return preds.cpu().numpy()
 
 
-# --- MODIFIED recommend_for_user ---
-def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = [], liked_movies: List[str] = [], rec_type: str = "hybrid") -> List[Dict[str, Any]]:
+# --- recommend_for_user ---
+def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = [], liked_movies: List[str] = [], rec_type: str = "hybrid") -> List[Dict[str, Any]]:
     if movies_df is None or model is None:
         return []
 
@@ -365,27 +359,63 @@ def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = 
 
     # --- 4. Sort and Enrich Results ---
     top_preds = sorted(final_scores, key=lambda x: x[1], reverse=True)[:top_n]
-    
+        
     enriched = []
     for mid, final_score in top_preds:
         row_df = movies_df[movies_df["movieid"] == mid]
         if row_df.empty: continue
         row = row_df.iloc[0]
-        
+            
         movie_ratings = ratings_df[ratings_df["movieid"] == mid]["rating"]
         avg_rating = movie_ratings.mean() if not movie_ratings.empty else None
         tags = tags_df[tags_df["movieid"] == mid]["tag"].value_counts().head(3).index.tolist()
         genres_output = row["genres"].split("|") 
         
+        # Fetch the poster URL
+        title_with_year = row["title"] # Assuming title column includes year (e.g., Toy Story (1995))
+        poster_url = fetch_movie_poster(title_with_year)
+            
         enriched.append({
             "movieId": int(mid),
             "title": movie_lookup.get(mid, "Unknown"),
             "avg_rating": avg_rating,
             "genres": genres_output,
-            "top_tags": tags
+            "top_tags": tags,
+            "poster_url": poster_url
         })
     return enriched
 
+def fetch_movie_poster(movie_title: str) -> str:
+    """Fetches the poster path for a movie title from TMDB, using a fallback on failure."""
+    if not TMDB_API_KEY:
+        print("⚠️ TMDB API Key is missing. Returning fallback.")
+        return FALLBACK_POSTER_URL # Return fallback if key is missing
+
+    try:
+        # 1. Search for the movie by title
+        search_url = f"{TMDB_BASE_URL}/search/movie"
+        params = {
+            "api_key": TMDB_API_KEY,
+            "query": movie_title,
+            "language": "en-US"
+        }
+        response = requests.get(search_url, params=params, timeout=5)
+        response.raise_for_status()
+        data = response.json()
+
+        # 2. Extract the poster path from the top result
+        if data and data.get('results'):
+            first_result = data['results'][0]
+            poster_path = first_result.get('poster_path')
+            
+            if poster_path:
+                return f"{TMDB_POSTER_BASE}{poster_path}"
+
+    except requests.RequestException as e:
+        print(f"Error fetching poster for '{movie_title}': {e}")
+        
+    # 3. Return fallback if no poster is found, or if an error occurred during the request
+    return FALLBACK_POSTER_URL
 
 # -----------------------
 # Pydantic Models
@@ -394,7 +424,7 @@ class RecommendRequest(BaseModel):
     username: str
     liked_genres: List[str] = [] 
     liked_movies: List[str] = []
-    top_n: int = 5
+    top_n: int = 12
 
 class FeedbackRequest(BaseModel):
     username: str

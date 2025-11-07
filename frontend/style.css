@@ -226,3 +226,62 @@ button:disabled {
     /* Ensure the checkbox itself doesn't cause text to wrap */
     flex-shrink: 0; 
 }
+
+#recommendations.recommendation-grid {
+    display: grid;
+    /* Create 3 equal columns for the 3x4 layout */
+    grid-template-columns: repeat(3, 1fr); 
+    gap: 20px;
+    margin-top: 20px;
+}
+
+/* Base style for the new recommendation card */
+.rec-card-poster {
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    height: 100%; /* Ensures all cards in the grid row are the same height */
+    text-align: center;
+}
+
+.poster-container {
+    width: 100%;
+    overflow: hidden;
+    margin-bottom: 10px;
+}
+
+.poster-container img {
+    width: 100%;
+    height: auto;
+    /* Maintain aspect ratio */
+    aspect-ratio: 2 / 3; 
+    border-radius: 6px;
+    object-fit: cover;
+}
+
+.info-content {
+    flex-grow: 1; /* Pushes buttons to the bottom */
+    text-align: left;
+    margin-bottom: 10px;
+}
+
+/* Ensure feedback buttons are styled correctly within the new card */
+.rec-card-poster .feedback-buttons button {
+    width: 100%;
+    margin: 3px 0;
+}
+
+/* Responsive adjustment for smaller screens */
+@media (max-width: 900px) {
+    #recommendations.recommendation-grid {
+        grid-template-columns: repeat(2, 1fr); /* Switch to 2 columns */
+    }
+}
+@media (max-width: 500px) {
+    #recommendations.recommendation-grid {
+        grid-template-columns: 1fr; /* Switch to a single column */
+    }
+}

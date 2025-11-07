@@ -173,27 +173,44 @@ document.getElementById("getRecsBtn").addEventListener("click", async () => {
 
 // ------------------- DISPLAY RECOMMENDATIONS -------------------
 function displayRecommendations(recs) {
-    recommendationsDiv.innerHTML = "";
+    recommendationsDiv.innerHTML = ""; 
+    
+    // Add the grid class to the container
+    recommendationsDiv.classList.add('recommendation-grid');
+
     if (!recs.length) {
         recommendationsDiv.innerHTML = "<p>No recommendations found.</p>";
+        recommendationsDiv.classList.remove('recommendation-grid'); // Remove grid if empty
         return;
     }
 
     recs.forEach((m) => {
         const div = document.createElement("div");
-        div.className = "movie-card";
+        // NOTE: Changed class name if you want a different look from .movie-card
+        div.className = "rec-card-poster"; 
         div.setAttribute("data-movie-id", m.movieId);
+        
+        // --- NEW HTML STRUCTURE to include the poster ---
+        // Assuming your backend could provide m.poster_url (currently simulated)
+        const posterUrl = `https://picsum.photos/200/300?random=${m.movieId}`; 
+        
         div.innerHTML = `
-            <span><strong>${m.title}</strong></span>
-            <em>Rating: ${m.avg_rating?.toFixed(2) ?? "N/A"}</em>
-            <em>Genres: ${m.genres.join(", ")}</em>
-            <em>Tags: ${m.top_tags.join(", ")}</em>
+            <div class="poster-container">
+                <img src="${posterUrl}" alt="${m.title} Poster">
+            </div>
+            <div class="info-content">
+                <span><strong>${m.title}</strong></span>
+                <em>Rating: ${m.avg_rating?.toFixed(2) ?? "N/A"}</em>
+                <em>Genres: ${m.genres.slice(0, 2).join(", ")}</em>
+                <em>Tags: ${m.top_tags.slice(0, 1).join(", ")}</em>
+            </div>
             <div class="feedback-buttons">
                 <button class="feedback-btn" data-type="interested">Interested</button>
                 <button class="feedback-btn" data-type="watched">Watched and Liked</button>
                 <button class="feedback-btn not-interested-btn" data-type="not_interested">Not Interested</button>
             </div>
         `;
+
         recommendationsDiv.appendChild(div);
 
         const [interestedBtn, watchedBtn, notInterestedBtn] =
