@@ -5,6 +5,7 @@ Movie Recommender API (Final Production Version)
 - PyTorch model loading fixed (weights_only=False).
 - Actor functionality removed entirely.
 - FIX: Implemented Content Profile Similarity Boost based on user history and selections.
+- FIX: GENRE_BOOST increased from 0.5 to 1.0 for stronger content influence.
 """
 
 import os
@@ -298,7 +299,7 @@ def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = 
 
     # --- 3. APPLY SOFT BIASING (UPDATED LOGIC: Genre + Similarity Boost) ---
     final_scores = []
-    GENRE_BOOST = 0.5 # TWEAK THIS: Max boost amount 
+    GENRE_BOOST = 1.0 # Max boost amount (Increased for stronger genre influence) 
 
     # NEW: Calculate content profile from Liked Movies and History
     if rec_type != 'collab':
@@ -352,7 +353,7 @@ def recommend_for_user(user_id: int, top_n: int = 10, liked_genres: List[str] = 
             
             similarity = np.dot(user_content_profile, movie_features_vector_norm)
             
-            # Scale the similarity (0 to 1) by GENRE_BOOST (Max 0.5 boost)
+            # Scale the similarity (0 to 1) by GENRE_BOOST 
             similarity_boost = np.clip(similarity, 0, 1) * GENRE_BOOST
 
 
@@ -407,8 +408,8 @@ class FeedbackRequest(BaseModel):
 def recommend_route(rec_type: str, req: RecommendRequest):
     user_id = get_or_create_user(req.username)
     recs = recommend_for_user(user_id, top_n=req.top_n, liked_genres=req.liked_genres,
-                              liked_movies=req.liked_movies,
-                              rec_type=rec_type)
+            liked_movies=req.liked_movies,
+            rec_type=rec_type)
     return {"recommendations": recs}
 
 @app.post("/feedback")
@@ -452,13 +453,15 @@ def get_history(username: str):
     if os.path.exists(INTERACTIONS_FILE) and os.path.getsize(INTERACTIONS_FILE) > 0:
         try:
             interactions_df = pd.read_csv(INTERACTIONS_FILE)
+            # Only consider existing users if they have actual interactions recorded
+            if not interactions_df[interactions_df["user_id"] == user_id].empty:
+                is_new_user = False
         except pd.errors.EmptyDataError:
             pass 
     
     user_rows = interactions_df[interactions_df["user_id"] == user_id]
     
     if not user_rows.empty:
-        is_new_user = False
         if movies_df is not None:
             for mid, inter in zip(user_rows["movie_id"], user_rows["interaction"]):
                 # Skip 'not_interested' in history display
@@ -501,9 +504,9 @@ def get_genres():
         
     # Filter content_cols to return only the Top 15 Title-Cased genre names
     genres = sorted([c for c in content_cols 
-                     if c not in tags_df.columns 
-                     and c not in ['movieid', 'title', 'genres']])
-    
+        if c not in tags_df.columns 
+        and c not in ['movieid', 'title', 'genres']])
+
     # Final sanity check: ensure we only return the top 15 explicitly.
     return genres[:TOP_GENRE_COUNT]
 
