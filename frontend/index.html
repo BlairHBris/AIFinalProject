@@ -3,21 +3,39 @@
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>Movie Recommender</title>
+		<title>AI Movie Recommender</title>
 		<link rel="stylesheet" href="style.css" />
 	</head>
 	<body>
 		<div class="container">
-			<h1>🎬 Movie Recommender System</h1>
+			<h1>🎬 AI Movie Recommendation System</h1>
 
 			<section id="login-section">
 				<h3>Login</h3>
 				<input id="username" type="text" placeholder="Enter your username" />
 				<button id="loginButton">Login</button>
-				<button id="logoutButton" style="display: none">Logout</button>
+			</section>
+
+			<section id="welcome-section" style="display: none">
+				<div style="display: flex ; justify-content: space-between; align-items: center;">
+					<h2 id="welcome"></h2>
+					<button id="logoutButton">Logout</button>
+				</div>
+			</section>
+
+			<section id="information-section" style="display: none">
+				<h3>Tell us a little about what you like to watch!</h3>
+
+				<h4>Favorite Genres</h4>
+				<div id="genre-checkboxes" class="checkbox-grid"></div>
+
+				<h4>Favorite Movies</h4>
+				<div id="movie-checkboxes" class="checkbox-grid"></div>
 			</section>
 
 			<section id="recommend-section" style="display: none">
+				<button id="getRecsBtn">Get Recommendations</button>
+
 				<h3>Get Recommendations</h3>
 
 				<label for="type">Recommendation Type:</label>
@@ -26,14 +44,6 @@
 					<option value="content">Movies based on what you like</option>
 					<option value="collab">Movies based on similar users</option>
 				</select>
-
-				<h4>Genres (Ctrl/Cmd + Click for multiple)</h4>
-				<select id="genre-options" multiple size="5"></select>
-
-				<h4>Movies You Liked (Ctrl/Cmd + Click for multiple)</h4>
-				<select id="movie-options" multiple size="5"></select>
-
-				<button id="getRecsBtn">Get Recommendations</button>
 
 				<h3>Recommendations</h3>
 				<div id="recommendations"></div>

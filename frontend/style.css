@@ -186,3 +186,43 @@ button:disabled {
     color: #007bff; /* Highlight the new group headers */
     margin-bottom: 10px;
 }
+
+/* Style the container to create a 4-column grid */
+.checkbox-grid {
+    display: grid;
+    /* Create 4 columns of equal width */
+    grid-template-columns: repeat(4, 1fr); 
+    /* Set a reasonable gap between items */
+    gap: 8px 15px; 
+    margin-bottom: 20px;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    background: #f9f9f9;
+    /* Allow longer content in the second grid for movie titles */
+    word-wrap: break-word; 
+}
+
+/* For smaller screens, reduce to 2 columns */
+@media (max-width: 768px) {
+    .genre-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* Style for individual checkbox labels */
+.checkbox-grid label {
+    display: flex; /* Use flex to align checkbox and text */
+    align-items: center;
+    cursor: pointer;
+    font-size: 0.9rem;
+    padding: 3px 0;
+}
+
+.checkbox-grid input[type="checkbox"] {
+    margin-right: 5px;
+    /* Make the checkbox slightly larger */
+    transform: scale(1.1); 
+    /* Ensure the checkbox itself doesn't cause text to wrap */
+    flex-shrink: 0; 
+}

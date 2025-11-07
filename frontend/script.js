@@ -4,6 +4,9 @@ let currentUser = "";
 // ------------------- DOM ELEMENTS -------------------
 const loginSection = document.getElementById("login-section");
 const recommendSection = document.getElementById("recommend-section");
+const welcomeSection = document.getElementById("welcome-section");
+const welcomeDiv = document.getElementById("welcome");
+const informationSection = document.getElementById("information-section");
 const usernameInput = document.getElementById("username");
 const loginButton = document.getElementById("loginButton");
 const logoutButton = document.getElementById("logoutButton");
@@ -22,11 +25,12 @@ loginButton.addEventListener("click", async () => {
     if (!username) return alert("Please enter a username");
     currentUser = username;
 
-    // FIX: Removed userType logic. Backend handles new/existing user creation/lookup.
-
     try {
         // Update UI visibility
+        welcomeDiv.textContent = `Welcome, ${currentUser}!`;
         loginSection.style.display = "none";
+        welcomeSection.style.display = "block";
+        informationSection.style.display = "block";
         recommendSection.style.display = "block";
         logoutButton.style.display = "block";
 
@@ -42,7 +46,9 @@ loginButton.addEventListener("click", async () => {
 logoutButton.addEventListener("click", () => {
     currentUser = "";
     loginSection.style.display = "block";
+    welcomeSection.style.display = "none";
     recommendSection.style.display = "none";
+    informationSection.style.display = "none";
     logoutButton.style.display = "none";
     historyDiv.innerHTML = "";
     recommendationsDiv.innerHTML = "";
@@ -50,50 +56,92 @@ logoutButton.addEventListener("click", () => {
 
 // ------------------- FILTER OPTIONS -------------------
 async function loadFilters() {
-    await loadOptions("genre-options", "genres", "alpha");
-    await loadOptions("movie-options", "movies", "rating");
+    await loadGenresCheckboxes();
+    await loadMovieCheckboxes();
 }
 
-async function loadOptions(selectId, endpoint, sortType) {
-    const select = document.getElementById(selectId);
-    select.innerHTML = "";
+// --- NEW FUNCTION: Loads genres and creates checkboxes ---
+async function loadGenresCheckboxes() {
+    const container = document.getElementById("genre-checkboxes");
+    if (!container) return;
+    
+    container.innerHTML = "";
+    
     try {
-        const res = await fetch(`${API_BASE_URL}/${endpoint}`);
-
-        if (!res.ok) {
-            const errorDetail = await res
-                .json()
-                .catch(() => ({ detail: "Unknown error" }));
-            throw new Error(
-                `Failed to fetch ${endpoint} (${res.status}): ${errorDetail.detail}`
-            );
-        }
-
-        let data = await res.json();
-
-        if (sortType === "alpha") data.sort((a, b) => a.localeCompare(b));
-        else if (sortType === "rating") data = data.slice(0, 25);
-
-        data.forEach((item) => {
-            const opt = document.createElement("option");
-            opt.value = item;
-            opt.textContent = item;
-            select.appendChild(opt);
+        const res = await fetch(`${API_BASE_URL}/genres`);
+        if (!res.ok) throw new Error("Failed to fetch genres");
+        
+        let genres = await res.json(); 
+        
+        genres.forEach((genre) => {
+            const label = document.createElement("label");
+            const checkbox = document.createElement("input");
+            
+            checkbox.type = "checkbox";
+            checkbox.value = genre;
+            checkbox.name = "selected-genre";
+            
+            label.appendChild(checkbox);
+            label.appendChild(document.createTextNode(genre));
+            container.appendChild(label);
         });
-        console.log(`✅ Loaded ${selectId.split("-")[0]} options.`);
+        
+        console.log(`✅ Loaded genre checkboxes.`);
     } catch (err) {
-        console.error(`❌ Failed to load ${endpoint}:`, err);
-        select.innerHTML = `<option disabled>Error loading data</option>`;
+        console.error(`❌ Failed to load genres:`, err);
+        container.innerHTML = `<p style="color:red;">Error loading genres.</p>`;
     }
 }
+// --- END NEW FUNCTION ---
+
+// --- NEW FUNCTION: Loads movies and creates checkboxes ---
+async function loadMovieCheckboxes() {
+    const container = document.getElementById("movie-checkboxes");
+    if (!container) return;
+
+    container.innerHTML = "";
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/movies`);
+        if (!res.ok) throw new Error("Failed to fetch top movies");
+
+        let movies = await res.json(); 
+        
+        movies.forEach((movieTitle) => {
+            const label = document.createElement("label");
+            const checkbox = document.createElement("input");
+
+            checkbox.type = "checkbox";
+            checkbox.value = movieTitle;
+            checkbox.name = "selected-movie";
+
+            label.appendChild(checkbox);
+            label.appendChild(document.createTextNode(movieTitle));
+            container.appendChild(label);
+        });
+
+        console.log(`✅ Loaded movie checkboxes.`);
+    } catch (err) {
+        console.error(`❌ Failed to load top movies:`, err);
+        container.innerHTML = `<p style="color:red;">Error loading top movies.</p>`;
+    }
+}
+// --- END NEW FUNCTION ---
+
 
 // ------------------- GET RECOMMENDATIONS -------------------
 document.getElementById("getRecsBtn").addEventListener("click", async () => {
     if (!currentUser) return alert("Please log in first");
 
     const type = document.getElementById("type").value;
-    const genres = getSelectedValues("genre-options");
-    const movies = getSelectedValues("movie-options");
+    
+    // MODIFIED: Get selected genres from the checkboxes
+    const genreCheckboxes = document.querySelectorAll('#genre-checkboxes input[name="selected-genre"]:checked');
+    const genres = Array.from(genreCheckboxes).map(cb => cb.value); 
+    
+    // MODIFIED: Get selected movies from the checkboxes
+    const movieCheckboxes = document.querySelectorAll('#movie-checkboxes input[name="selected-movie"]:checked');
+    const movies = Array.from(movieCheckboxes).map(cb => cb.value);
 
     const payload = {
         username: currentUser,
@@ -279,11 +327,4 @@ function displayHistory(history) {
         });
     }
     historyContainer.appendChild(watchedDiv);
-}
-
-// ------------------- UTIL -------------------
-function getSelectedValues(selectId) {
-    return Array.from(document.getElementById(selectId).selectedOptions).map(
-        (opt) => opt.value
-    );
 }

@@ -29,7 +29,6 @@ TAGS_FILE = os.path.join(BASE_DIR, "tags.csv")
 USERS_FILE = os.path.join(BASE_DIR, "users.csv")
 INTERACTIONS_FILE = os.path.join(BASE_DIR, "user_interactions.csv")
 MODEL_FILE = os.path.join(BASE_DIR, "torch_recommender.pt")
-UPDATE_THRESHOLD = 10
 TOP_GENRE_COUNT = 20 
 
 FRONTEND_URLS = [
@@ -450,18 +449,21 @@ def get_history(username: str):
 
     is_new_user = True
     interactions_df = pd.DataFrame(columns=["user_id", "movie_id", "interaction"]) 
+    
+    # 1. Load interactions file safely
     if os.path.exists(INTERACTIONS_FILE) and os.path.getsize(INTERACTIONS_FILE) > 0:
         try:
             interactions_df = pd.read_csv(INTERACTIONS_FILE)
-            # Only consider existing users if they have actual interactions recorded
-            if not interactions_df[interactions_df["user_id"] == user_id].empty:
-                is_new_user = False
         except pd.errors.EmptyDataError:
             pass 
     
     user_rows = interactions_df[interactions_df["user_id"] == user_id]
     
+    # 2. Determine is_new_user and build history list
     if not user_rows.empty:
+        # User is NOT new if they have ANY rows in the interaction file
+        is_new_user = False 
+        
         if movies_df is not None:
             for mid, inter in zip(user_rows["movie_id"], user_rows["interaction"]):
                 # Skip 'not_interested' in history display
@@ -477,6 +479,8 @@ def get_history(username: str):
                         "genres": row["genres"].split("|")
                     })
 
+    # Note: If a user exists but has only 'not_interested' movies, is_new_user is False, 
+    # and history will be empty (correct behavior).
     return {"history": history, "is_new_user": is_new_user}
 
 @app.get("/warmup")
@@ -492,7 +496,7 @@ def startup_event():
     print("✅ Startup complete")
 
 # -----------------------
-# Helper endpoints for frontend dropdowns
+# Helper endpoints for frontend checkboxes
 # -----------------------
 @app.get("/genres")
 def get_genres():
@@ -502,13 +506,17 @@ def get_genres():
     if movies_df is None or tags_df is None:
         raise HTTPException(status_code=503, detail="Server data not yet available.")
         
-    # Filter content_cols to return only the Top 15 Title-Cased genre names
-    genres = sorted([c for c in content_cols 
-        if c not in tags_df.columns 
-        and c not in ['movieid', 'title', 'genres']])
+    # Standardize and count genre frequency
+    all_genres_list = movies_df["genres"].str.split("|").explode().str.title().dropna()
 
-    # Final sanity check: ensure we only return the top 15 explicitly.
-    return genres[:TOP_GENRE_COUNT]
+    # Count frequency and get top genres
+    genre_counts = all_genres_list.value_counts()
+    top_genres = genre_counts.head(TOP_GENRE_COUNT).index.tolist()
+
+    # Sort and return
+    genres_to_return = sorted(top_genres)
+
+    return genres_to_return
 
 @app.get("/movies")
 def get_top_movies():
