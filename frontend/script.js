@@ -199,9 +199,9 @@ function displayRecommendations(recs) {
             </div>
             <div class="info-content">
                 <span><strong>${m.title}</strong></span>
-                <em>Rating: ${m.avg_rating?.toFixed(2) ?? "N/A"}</em>
-                <em>Genres: ${m.genres.slice(0, 2).join(", ")}</em>
-                <em>Tags: ${m.top_tags.slice(0, 1).join(", ")}</em>
+                <p>Rating: ${m.avg_rating?.toFixed(2) ?? "N/A"}</em>
+                <p>Genres: ${m.genres.slice(0, 3).join(", ")}</em>
+                <p>Tags: ${m.top_tags.slice(0, 3).join(", ")}</em>
             </div>
             <div class="feedback-buttons">
                 <button class="feedback-btn" data-type="interested">Interested</button>

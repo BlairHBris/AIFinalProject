@@ -371,8 +371,7 @@ def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = 
         genres_output = row["genres"].split("|") 
         
         # Fetch the poster URL
-        title_with_year = row["title"] # Assuming title column includes year (e.g., Toy Story (1995))
-        poster_url = fetch_movie_poster(title_with_year)
+        poster_path = fetch_movie_poster(row["title"])
             
         enriched.append({
             "movieId": int(mid),
@@ -380,7 +379,7 @@ def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = 
             "avg_rating": avg_rating,
             "genres": genres_output,
             "top_tags": tags,
-            "poster_url": poster_url
+            "poster_path": poster_path
         })
     return enriched
 
