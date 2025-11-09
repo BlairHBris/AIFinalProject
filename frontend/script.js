@@ -174,26 +174,25 @@ document.getElementById("getRecsBtn").addEventListener("click", async () => {
 
 // ------------------- DISPLAY RECOMMENDATIONS -------------------
 function displayRecommendations(recs) {
-	recommendationsDiv.innerHTML = "";
-	recommendationsDiv.classList.add("recommendation-grid");
+    recommendationsDiv.innerHTML = "";
+    recommendationsDiv.classList.add("recommendation-grid");
 
-	if (!recs.length) {
-		recommendationsDiv.innerHTML = "<p>No recommendations found.</p>";
-		recommendationsDiv.classList.remove("recommendation-grid");
-		return;
-	}
+    if (!recs.length) {
+        recommendationsDiv.innerHTML = "<p>No recommendations found.</p>";
+        recommendationsDiv.classList.remove("recommendation-grid");
+        return;
+    }
 
-	recs.forEach((m) => {
-		console.log(m.posterUrl);
-		const div = document.createElement("div");
-		div.className = "rec-card-poster";
-		div.setAttribute("data-movie-id", m.movieId);
+    recs.forEach((m) => {
+        const div = document.createElement("div");
+        div.className = "rec-card-poster";
+        div.setAttribute("data-movie-id", m.movieId);
 
-		// Use posterUrl if available, else use placeholder
-		const placeholderUrl = `https://picsum.photos/200/300?random=${m.movieId}`;
-		const posterUrl = m.posterUrl || placeholderUrl;
+        // Get poster_path or use placeholder
+        const placeholderUrl = `https://via.placeholder.com/200x300.png?text=ID+${m.movieId}`;
+        const posterUrl = m.poster_path || placeholderUrl; 
 
-		div.innerHTML = `
+        div.innerHTML = `
             <div class="poster-container">
                 <img src="${posterUrl}" alt="${m.title} Poster">
             </div>
@@ -210,49 +209,57 @@ function displayRecommendations(recs) {
             </div>
         `;
 
-		recommendationsDiv.appendChild(div);
+        recommendationsDiv.appendChild(div);
 
-		const [interestedBtn, watchedBtn, notInterestedBtn] =
-			div.querySelectorAll(".feedback-btn");
+        // Get all feedback buttons for mutual exclusion logic
+        const feedbackButtons = div.querySelectorAll(".feedback-btn");
+        const [interestedBtn, watchedBtn, notInterestedBtn] = feedbackButtons;
 
-		const setupFeedback = (button, type) => {
-			button.addEventListener("click", async () => {
-				const isActive = button.classList.contains("active");
+        const setupFeedback = (button, type) => {
+            button.addEventListener("click", async () => {
+                const isActive = button.classList.contains("active");
 
-				if (type === "not_interested") {
-					// 1. Send permanent flag (for future exclusion)
-					await sendFeedback(m.movieId, "not_interested");
+                // --- NEW: Mutual Exclusion Logic ---
+                // If we are activating a button, deactivate all others first.
+                if (!isActive) {
+                    feedbackButtons.forEach(otherButton => {
+                        if (otherButton !== button && otherButton.classList.contains('active')) {
+                            // Deactivate other button visually and logically (send 'remove' signal for old interaction)
+                            otherButton.classList.remove('active');
+                            sendFeedback(m.movieId, 'remove'); 
+                        }
+                    });
+                }
 
-					// 2. TOGGLE button appearance (light up red)
-					button.classList.toggle("active", !isActive);
+                if (type === "not_interested") {
+                    // Not Interested: Send permanent flag and toggle state
+                    await sendFeedback(m.movieId, "not_interested");
+                    button.classList.toggle("active", !isActive);
+                    await loadHistory();
+                    return;
+                }
 
-					// 3. Update history panel
-					await loadHistory();
+                // Interested/Watched Logic (Toggle)
+                const action = isActive ? "remove" : type;
 
-					return;
-				}
+                try {
+                    await sendFeedback(m.movieId, action);
 
-				// Interested/Watched Logic (Toggle)
-				const action = isActive ? "remove" : type;
+                    // Update the clicked button's state
+                    button.classList.toggle("active", !isActive);
 
-				try {
-					await sendFeedback(m.movieId, action);
+                    // Update history panel
+                    await loadHistory();
+                } catch (err) {
+                    console.error("Feedback error:", err);
+                }
+            });
+        };
 
-					// Update buttons state
-					button.classList.toggle("active", !isActive);
-
-					// Only update history. DO NOT re-run get recommendations.
-					await loadHistory();
-				} catch (err) {
-					console.error("Feedback error:", err);
-				}
-			});
-		};
-
-		setupFeedback(interestedBtn, "interested");
-		setupFeedback(watchedBtn, "watched");
-		setupFeedback(notInterestedBtn, "not_interested");
-	});
+        setupFeedback(interestedBtn, "interested");
+        setupFeedback(watchedBtn, "watched");
+        setupFeedback(notInterestedBtn, "not_interested");
+    });
 }
 
 // Helper function to centralize feedback API call
