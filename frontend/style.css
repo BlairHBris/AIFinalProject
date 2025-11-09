@@ -105,8 +105,8 @@ button:disabled {
 	color: #fff;
 }
 
-.feedback-btn[data-type="watched"].active {
-	background-color: #ffc107;
+.feedback-btn[data-type="not_interested"].active {
+	background-color: #dc3545;
 	color: #fff;
 }
 

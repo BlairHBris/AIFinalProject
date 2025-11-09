@@ -60,7 +60,7 @@ async function loadFilters() {
     await loadMovieCheckboxes();
 }
 
-// --- NEW FUNCTION: Loads genres and creates checkboxes ---
+// --- Loads genres and creates checkboxes ---
 async function loadGenresCheckboxes() {
     const container = document.getElementById("genre-checkboxes");
     if (!container) return;
@@ -92,9 +92,8 @@ async function loadGenresCheckboxes() {
         container.innerHTML = `<p style="color:red;">Error loading genres.</p>`;
     }
 }
-// --- END NEW FUNCTION ---
 
-// --- NEW FUNCTION: Loads movies and creates checkboxes ---
+// --- Loads movies and creates checkboxes ---
 async function loadMovieCheckboxes() {
     const container = document.getElementById("movie-checkboxes");
     if (!container) return;
@@ -126,7 +125,6 @@ async function loadMovieCheckboxes() {
         container.innerHTML = `<p style="color:red;">Error loading top movies.</p>`;
     }
 }
-// --- END NEW FUNCTION ---
 
 
 // ------------------- GET RECOMMENDATIONS -------------------
@@ -135,11 +133,11 @@ document.getElementById("getRecsBtn").addEventListener("click", async () => {
 
     const type = document.getElementById("type").value;
     
-    // MODIFIED: Get selected genres from the checkboxes
+    // Get selected genres from the checkboxes
     const genreCheckboxes = document.querySelectorAll('#genre-checkboxes input[name="selected-genre"]:checked');
     const genres = Array.from(genreCheckboxes).map(cb => cb.value); 
     
-    // MODIFIED: Get selected movies from the checkboxes
+    // Get selected movies from the checkboxes
     const movieCheckboxes = document.querySelectorAll('#movie-checkboxes input[name="selected-movie"]:checked');
     const movies = Array.from(movieCheckboxes).map(cb => cb.value);
 
@@ -147,7 +145,7 @@ document.getElementById("getRecsBtn").addEventListener("click", async () => {
         username: currentUser,
         liked_genres: genres,
         liked_movies: movies,
-        top_n: 10,
+        top_n: 12,
     };
 
     spinner.classList.add("show");
@@ -173,26 +171,23 @@ document.getElementById("getRecsBtn").addEventListener("click", async () => {
 
 // ------------------- DISPLAY RECOMMENDATIONS -------------------
 function displayRecommendations(recs) {
-    recommendationsDiv.innerHTML = ""; 
-    
-    // Add the grid class to the container
+    recommendationsDiv.innerHTML = "";
     recommendationsDiv.classList.add('recommendation-grid');
 
     if (!recs.length) {
         recommendationsDiv.innerHTML = "<p>No recommendations found.</p>";
-        recommendationsDiv.classList.remove('recommendation-grid'); // Remove grid if empty
+        recommendationsDiv.classList.remove('recommendation-grid');
         return;
     }
 
     recs.forEach((m) => {
         const div = document.createElement("div");
-        // NOTE: Changed class name if you want a different look from .movie-card
         div.className = "rec-card-poster"; 
         div.setAttribute("data-movie-id", m.movieId);
         
-        // --- NEW HTML STRUCTURE to include the poster ---
-        // Assuming your backend could provide m.poster_url (currently simulated)
-        const posterUrl = `https://picsum.photos/200/300?random=${m.movieId}`; 
+		// Use posterUrl if available, else use placeholder
+		const placeholderUrl = `https://via.placeholder.com/200x300.png?text=ID+${m.movieId}`;
+        const posterUrl = m.posterUrl || placeholderUrl;
         
         div.innerHTML = `
             <div class="poster-container">
@@ -221,10 +216,15 @@ function displayRecommendations(recs) {
                 const isActive = button.classList.contains("active");
 
                 if (type === "not_interested") {
-                    // Not Interested: Send permanent flag and hide card
+                    // 1. Send permanent flag (for future exclusion)
                     await sendFeedback(m.movieId, "not_interested");
-                    div.style.display = "none"; // Hide card immediately
-                    await loadHistory(); // Update history panel
+                    
+                    // 2. TOGGLE button appearance (light up red)
+                    button.classList.toggle("active", !isActive); 
+                    
+                    // 3. Update history panel
+                    await loadHistory(); 
+                    
                     return;
                 }
 
@@ -237,7 +237,7 @@ function displayRecommendations(recs) {
                     // Update buttons state
                     button.classList.toggle("active", !isActive);
 
-                    // FIX: Only update history. DO NOT re-run get recommendations.
+                    // Only update history. DO NOT re-run get recommendations.
                     await loadHistory();
 
                 } catch (err) {

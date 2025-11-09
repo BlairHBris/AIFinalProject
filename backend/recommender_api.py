@@ -25,7 +25,6 @@ TOP_MOVIE_COUNT = 20
 TMDB_API_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiIzNTg2YTg2MWI2MmM3ZDczNzM5MWM0MTgyNzhmODIwNSIsIm5iZiI6MTc2MjU0OTIwOS44NTQsInN1YiI6IjY5MGU1ZGQ5YTc3MGZmMzhjNWMwNTMxZSIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.liYjcu3qm4JdIGhVjmchD2zebG-JCQQvjarTSVVRDd8"
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
 TMDB_POSTER_BASE = "https://image.tmdb.org/t/p/w200"
-FALLBACK_POSTER_URL = "https://share.google/images/CwmjIgjQp5v8fRZsP"
 
 FRONTEND_URLS = [
     "http://localhost:3000",
@@ -389,13 +388,16 @@ def fetch_movie_poster(movie_title: str) -> str:
     """Fetches the poster path for a movie title from TMDB, using a fallback on failure."""
     if not TMDB_API_KEY:
         print("⚠️ TMDB API Key is missing. Returning fallback.")
-        return FALLBACK_POSTER_URL # Return fallback if key is missing
+        return ""
 
     try:
         # 1. Search for the movie by title
         search_url = f"{TMDB_BASE_URL}/search/movie"
+        headers = {
+            "Authorization": f"Bearer {TMDB_API_KEY}",
+            "accept": "application/json"
+        }
         params = {
-            "api_key": TMDB_API_KEY,
             "query": movie_title,
             "language": "en-US"
         }
@@ -415,7 +417,7 @@ def fetch_movie_poster(movie_title: str) -> str:
         print(f"Error fetching poster for '{movie_title}': {e}")
         
     # 3. Return fallback if no poster is found, or if an error occurred during the request
-    return FALLBACK_POSTER_URL
+    return ""
 
 # -----------------------
 # Pydantic Models
