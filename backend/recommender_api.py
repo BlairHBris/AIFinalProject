@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import requests
+import re
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -388,6 +389,9 @@ def fetch_movie_poster(movie_title: str) -> str:
     if not TMDB_API_KEY:
         print("⚠️ TMDB API Key is missing. Returning fallback.")
         return ""
+    
+    # Clean the movie title for better search accuracy
+    cleaned_title = re.sub(r'\s*\([^)]*\)', '', movie_title).strip()
 
     try:
         # 1. Search for the movie by title
@@ -397,7 +401,7 @@ def fetch_movie_poster(movie_title: str) -> str:
         }
 
         params = {
-            "query": movie_title,
+            "query": cleaned_title,
             "include_adult": "false",
             "language": "en-US",
             "page": 1
