@@ -23,7 +23,7 @@ MODEL_FILE = os.path.join(BASE_DIR, "torch_recommender.pt")
 TOP_GENRE_COUNT = 20 
 TOP_MOVIE_COUNT = 20 
 TMDB_API_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiIzNTg2YTg2MWI2MmM3ZDczNzM5MWM0MTgyNzhmODIwNSIsIm5iZiI6MTc2MjU0OTIwOS44NTQsInN1YiI6IjY5MGU1ZGQ5YTc3MGZmMzhjNWMwNTMxZSIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.liYjcu3qm4JdIGhVjmchD2zebG-JCQQvjarTSVVRDd8"
-TMDB_BASE_URL = "https://api.themoviedb.org/3"
+TMDB_BASE_URL = "https://api.themoviedb.org/3/search/movie?"
 TMDB_POSTER_BASE = "https://image.tmdb.org/t/p/w200"
 
 FRONTEND_URLS = [
@@ -392,16 +392,19 @@ def fetch_movie_poster(movie_title: str) -> str:
 
     try:
         # 1. Search for the movie by title
-        search_url = f"{TMDB_BASE_URL}/search/movie"
         headers = {
-            "Authorization": f"Bearer {TMDB_API_KEY}",
-            "accept": "application/json"
+            "accept": "application/json",
+            "Authorization": f"Bearer {TMDB_API_KEY}"
         }
+
         params = {
             "query": movie_title,
-            "language": "en-US"
+            "include_adult": "false",
+            "language": "en-US",
+            "page": 1
         }
-        response = requests.get(search_url, params=params, timeout=5)
+
+        response = requests.get(TMDB_BASE_URL, headers=headers, params=params, timeout=5)
         response.raise_for_status()
         data = response.json()
 
