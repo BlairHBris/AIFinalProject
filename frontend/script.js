@@ -183,9 +183,8 @@ function displayRecommendations(recs) {
 		return;
 	}
 
-	console.log(recs);
-
 	recs.forEach((m) => {
+		console.log(m.posterUrl);
 		const div = document.createElement("div");
 		div.className = "rec-card-poster";
 		div.setAttribute("data-movie-id", m.movieId);
