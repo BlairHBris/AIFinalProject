@@ -183,6 +183,8 @@ function displayRecommendations(recs) {
 		return;
 	}
 
+	console.log(recs);
+
 	recs.forEach((m) => {
 		const div = document.createElement("div");
 		div.className = "rec-card-poster";
