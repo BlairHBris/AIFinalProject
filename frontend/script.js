@@ -175,6 +175,8 @@ document.getElementById("getRecsBtn").addEventListener("click", async () => {
 // ------------------- DISPLAY RECOMMENDATIONS -------------------
 function displayRecommendations(recs) {
 	recommendationsDiv.innerHTML = "";
+	recommendationsDiv.innerHTML = "<h3>Recommendations</h3>";
+
 	recommendationsDiv.classList.add("recommendation-grid");
 
 	if (!recs.length) {

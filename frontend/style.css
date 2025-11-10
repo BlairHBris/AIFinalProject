@@ -229,8 +229,8 @@ button:disabled {
 
 #recommendations.recommendation-grid {
     display: grid;
-    /* Create 3 equal columns for the 3x4 layout */
-    grid-template-columns: repeat(3, 1fr); 
+    /* Create 4 equal columns for the 4x3 layout */
+    grid-template-columns: repeat(4, 1fr); 
     gap: 20px;
     margin-top: 20px;
 }
