@@ -13,6 +13,7 @@ const logoutButton = document.getElementById("logoutButton");
 const recommendationsDiv = document.getElementById("recommendations");
 const historyDiv = document.getElementById("history");
 const spinner = document.getElementById("spinner");
+const recommendationHeader = document.getElementById("recommendation-header");
 
 // ------------------- INITIALIZE FILTERS -------------------
 window.addEventListener("DOMContentLoaded", async () => {
@@ -175,7 +176,8 @@ document.getElementById("getRecsBtn").addEventListener("click", async () => {
 // ------------------- DISPLAY RECOMMENDATIONS -------------------
 function displayRecommendations(recs) {
 	recommendationsDiv.innerHTML = "";
-	recommendationsDiv.innerHTML = "<h3>Recommendations</h3>";
+
+	recommendationHeader.style.display = "block";
 
 	recommendationsDiv.classList.add("recommendation-grid");
 
