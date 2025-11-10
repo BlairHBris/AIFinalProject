@@ -274,7 +274,7 @@ def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = 
                 pass 
         
         # EXCLUSION: Identify all movies user has interacted with
-        seen = set(interactions_df[interactions_df["user_id"]==user_id]["movie_id"].astype(int))
+        seen = set(interactions_df[interactions_df["user_id"]==user_id]["movieid"].astype(int))
         # Candidates are ALL unseen movies
         candidates_df = movies_df[~movies_df["movieid"].isin(seen)].copy()
 
@@ -293,7 +293,8 @@ def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = 
 
     # --- 3. APPLY SOFT BIASING (UPDATED LOGIC: Genre + Similarity Boost) ---
     final_scores = []
-    GENRE_BOOST = 1.0 # Max boost amount (Increased for stronger genre influence) 
+    GENRE_BOOST = 1.0 # Base Max boost for history/similarity 
+    EXPLICIT_GENRE_BOOST = 5.0 # High boost for explicit user selection
 
     # NEW: Calculate content profile from Liked Movies and History
     if rec_type != 'collab':
@@ -332,7 +333,7 @@ def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = 
             for g in liked_genres:
                 if g in candidates_df.columns and movie_row.get(g, 0) == 1:
                     match_count += 1
-            genre_boost = (match_count / len(liked_genres)) * GENRE_BOOST
+            genre_boost = (match_count / len(liked_genres)) * EXPLICIT_GENRE_BOOST
         
         # --- 3d(ii) Content Profile Similarity Boost (NEW LOGIC) ---
         # This uses the combination of liked movies AND positive history
@@ -347,7 +348,7 @@ def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = 
             
             similarity = np.dot(user_content_profile, movie_features_vector_norm)
             
-            # Scale the similarity (0 to 1) by GENRE_BOOST 
+            # Scale the similarity (0 to 1) by GENRE_BOOST (1.0)
             similarity_boost = np.clip(similarity, 0, 1) * GENRE_BOOST
 
 
