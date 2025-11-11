@@ -274,7 +274,7 @@ def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = 
                 pass 
         
         # EXCLUSION: Identify all movies user has interacted with
-        seen = set(interactions_df[interactions_df["user_id"]==user_id]["movieid"].astype(int))
+        seen = set(interactions_df[interactions_df["user_id"]==user_id]["movie_id"].astype(int))
         # Candidates are ALL unseen movies
         candidates_df = movies_df[~movies_df["movieid"].isin(seen)].copy()
 
