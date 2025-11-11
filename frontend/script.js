@@ -196,15 +196,22 @@ function displayRecommendations(recs) {
 		const placeholderUrl = `https://picsum.photos/200/300?random=${m.movieId}`;
 		const posterUrl = m.poster_path || placeholderUrl;
 
+		// Conditional logic for Tags
+		let tagsDisplay = "";
+		const topTags = m.top_tags;
+		if (topTags && topTags.length > 0) {
+			tagsDisplay = `<p>Tags: ${m.top_tags.slice(0, 3).join(", ")}</p>`;
+		}
+
 		div.innerHTML = `
             <div class="poster-container">
                 <img src="${posterUrl}" alt="${m.title} Poster">
             </div>
             <div class="info-content">
                 <span><strong>${m.title}</strong></span>
-                <p>Rating: ${m.avg_rating?.toFixed(2) ?? "N/A"}</em>
-                <p>Genres: ${m.genres.slice(0, 3).join(", ")}</em>
-                <p>Tags: ${m.top_tags.slice(0, 3).join(", ")}</em>
+                <p>Rating: ${m.avg_rating?.toFixed(2) ?? "N/A"}</p>
+                <p>Genres: ${m.genres.slice(0, 3).join(", ")}</p>
+				${tagsDisplay}
             </div>
             <div class="feedback-buttons">
                 <button class="feedback-btn" data-type="interested">Interested</button>
