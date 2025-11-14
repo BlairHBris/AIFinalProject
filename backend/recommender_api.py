@@ -467,7 +467,7 @@ def recommend_route(rec_type: str, req: RecommendRequest):
     user_id = get_or_create_user(req.username)
     recs = recommend_for_user(user_id, top_n=req.top_n, liked_genres=req.liked_genres,
             liked_movies=req.liked_movies,
-            rec_type=rec_type, mandatory_genres=mandatory_genres)
+            rec_type=rec_type, mandatory_genres=req.mandatory_genres)
     return {"recommendations": recs}
 
 @app.post("/feedback")
