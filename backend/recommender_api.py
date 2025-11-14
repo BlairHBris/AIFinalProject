@@ -278,24 +278,36 @@ def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = 
         # Candidates are ALL unseen movies
         candidates_df = movies_df[~movies_df["movieid"].isin(seen)].copy()
 
-        candidates = candidates_df["movieid"].tolist()
-        if not candidates:
-            return []
-    
-    # Optional hard filter, mandatory genres
+    # --- 1.5. Optional hard filter, mandatory genres (ROBUST IMPLEMENTATION) ---
     if mandatory_genres:
-        mask = pd.Series(True, index=candidates_df.index)
-
-        for mandatory_genre in mandatory_genres:
-            mandatory_genre_column = mandatory_genre.title() 
-
-            if mandatory_genre_column in candidates_df.columns:
-                mask &= (candidates_df[mandatory_genre_column] == 1) 
+        # 1. Standardize genre names to match the column headers (Title Case)
+        mandatory_genre_columns = [g.title() for g in mandatory_genres]
         
-        candidates_df = candidates_df[mask].copy()
+        # 2. Identify the OHE columns relevant for the hard filter
+        valid_mandatory_cols = [col for col in mandatory_genre_columns if col in candidates_df.columns]
+
+        if len(valid_mandatory_cols) != len(mandatory_genres):
+            # This should not happen based on your constraint, but serves as a final safety check.
+            print(f"⚠️ Mandatory genres not found in OHE features: {set(mandatory_genre_columns) - set(valid_mandatory_cols)}")
+            return []
+        
+        # 3. Apply the hard filter using column summation:
+        # Sum the OHE values for the mandatory columns. If the sum equals the number of mandatory genres, 
+        # the movie has ALL of them.
+        candidates_df['mandatory_sum'] = candidates_df[valid_mandatory_cols].sum(axis=1)
+        
+        candidates_df = candidates_df[
+            candidates_df['mandatory_sum'] == len(valid_mandatory_cols)
+        ].drop(columns=['mandatory_sum']).copy()
+        
+        # Update candidates list with the filtered IDs
         candidates = candidates_df["movieid"].tolist()
+        
         if not candidates:
             return []
+    else:
+        # If no mandatory genres, candidates are just all unseen movies
+        candidates = candidates_df["movieid"].tolist()
 
     # --- 2. Score Candidates (Prediction) ---
     preds = []
