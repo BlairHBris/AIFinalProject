@@ -259,7 +259,7 @@ def predict_batch(user_idx_int: int, movie_id_batch: List[int], user_content_fea
 
 
 # --- recommend_for_user ---
-def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = [], liked_movies: List[str] = [], rec_type: str = "hybrid") -> List[Dict[str, Any]]:
+def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = [], liked_movies: List[str] = [], rec_type: str = "hybrid", mandatory_genres: List[str]=[]) -> List[Dict[str, Any]]:
     if movies_df is None or model is None:
         return []
 
@@ -288,7 +288,7 @@ def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = 
 
         for mandatory_genre in mandatory_genre:
             if mandatory_genre in candidates_df.columns:
-                mask &= (candidates_df[required_genre] == 1)
+                mask &= (candidates_df[mandatory_genre] == 1)
         
         candidates_df = candidates_df[mask].copy()
 
@@ -467,7 +467,7 @@ def recommend_route(rec_type: str, req: RecommendRequest):
     user_id = get_or_create_user(req.username)
     recs = recommend_for_user(user_id, top_n=req.top_n, liked_genres=req.liked_genres,
             liked_movies=req.liked_movies,
-            rec_type=rec_type)
+            rec_type=rec_type, mandatory_genres=mandatory_genres)
     return {"recommendations": recs}
 
 @app.post("/feedback")
