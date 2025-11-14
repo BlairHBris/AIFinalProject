@@ -295,6 +295,7 @@ def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = 
     final_scores = []
     GENRE_BOOST = 1.0 # Base Max boost for history/similarity 
     EXPLICIT_GENRE_BOOST = 5.0 # High boost for explicit user selection
+    IRRELEVANCE_PENALTY = 0.5 # Penalty for a lack of matching genres
 
     # NEW: Calculate content profile from Liked Movies and History
     if rec_type != 'collab':
@@ -327,6 +328,8 @@ def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = 
         
         # --- 3d(i) Genre Selection Boost (Existing Logic) ---
         genre_boost = 0.0
+        match_count = 0
+
         if liked_genres:
             match_count = 0
             # Use the explicit selected genres for a direct, simple boost
@@ -334,6 +337,11 @@ def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = 
                 if g in candidates_df.columns and movie_row.get(g, 0) == 1:
                     match_count += 1
             genre_boost = (match_count / len(liked_genres)) * EXPLICIT_GENRE_BOOST
+        
+        # Penalty Logic
+        adjusted_score = score
+        if liked_genres and match_count == 0:
+            adjusted_score = score - IRRELEVANCE_PENALTY
         
         # --- 3d(ii) Content Profile Similarity Boost (NEW LOGIC) ---
         # This uses the combination of liked movies AND positive history
@@ -355,8 +363,8 @@ def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = 
         # Total Boost: Combine the explicit genre match and the feature similarity score
         total_boost = genre_boost + similarity_boost
             
-        # Add boost to the predicted score
-        final_scores.append((mid, score + total_boost))
+        # Add boost to the predicted adjusted_score
+        final_scores.append((mid, adjusted_score + total_boost))
 
     # --- 4. Sort and Enrich Results ---
     top_preds = sorted(final_scores, key=lambda x: x[1], reverse=True)[:top_n]
