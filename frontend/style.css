@@ -203,13 +203,6 @@ button:disabled {
     word-wrap: break-word; 
 }
 
-/* For smaller screens, reduce to 2 columns */
-@media (max-width: 768px) {
-    .genre-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-}
-
 /* Style for individual checkbox labels */
 .checkbox-grid label {
     display: flex; /* Use flex to align checkbox and text */

@@ -281,6 +281,16 @@ def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = 
         candidates = candidates_df["movieid"].tolist()
         if not candidates:
             return []
+    
+    # Optional hard filter, mandatory genres
+    if mandatory_genres:
+        mask = pd.Series(True, index=candidates_df.index)
+
+        for mandatory_genre in mandatory_genre:
+            if mandatory_genre in candidates_df.columns:
+                mask &= (candidates_df[required_genre] == 1)
+        
+        candidates_df = candidates_df[mask].copy()
 
     # --- 2. Score Candidates (Prediction) ---
     preds = []
@@ -441,6 +451,7 @@ class RecommendRequest(BaseModel):
     username: str
     liked_genres: List[str] = [] 
     liked_movies: List[str] = []
+    mandatory_genres: List[str] = []
     top_n: int = 12
 
 class FeedbackRequest(BaseModel):

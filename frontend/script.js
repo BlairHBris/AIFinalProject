@@ -1,5 +1,6 @@
 const API_BASE_URL = "https://movie-recommender-backend-a9wo.onrender.com";
 let currentUser = "";
+let genreList = []
 
 // ------------------- DOM ELEMENTS -------------------
 const loginSection = document.getElementById("login-section");
@@ -14,6 +15,7 @@ const recommendationsDiv = document.getElementById("recommendations");
 const historyDiv = document.getElementById("history");
 const spinner = document.getElementById("spinner");
 const recommendationHeader = document.getElementById("recommendation-header");
+const requiredGenres = document.getElementById("required-genres");
 
 // ------------------- INITIALIZE FILTERS -------------------
 window.addEventListener("DOMContentLoaded", async () => {
@@ -72,9 +74,9 @@ async function loadGenresCheckboxes() {
 		const res = await fetch(`${API_BASE_URL}/genres`);
 		if (!res.ok) throw new Error("Failed to fetch genres");
 
-		let genres = await res.json();
+		genreList = await res.json();
 
-		genres.forEach((genre) => {
+		genreList.forEach((genre) => {
 			const label = document.createElement("label");
 			const checkbox = document.createElement("input");
 
@@ -87,11 +89,43 @@ async function loadGenresCheckboxes() {
 			container.appendChild(label);
 		});
 
+		container.addEventListener('change', () => {
+			const checkedGenres = Array.from(container.querySelectorAll('input[name="selected-genre"]:checked')).map(cb => cb.value);
+            updateMustIncludeCheckboxes(checkedGenres)
+		})
+
 		console.log(`✅ Loaded genre checkboxes.`);
 	} catch (err) {
 		console.error(`❌ Failed to load genres:`, err);
 		container.innerHTML = `<p style="color:red;">Error loading genres.</p>`;
 	}
+}
+
+function updateMustIncludeCheckboxes(availableGenres) {
+    const container = document.getElementById("mandatory-checkboxes");
+    if (!container) return;
+
+    container.innerHTML = "";
+	requiredGenres.style.display = "block";
+
+    
+    if (availableGenres.length === 0) {
+        container.innerHTML = "<p>Select genres above to enable the hard filter.</p>";
+        return;
+    }
+
+    availableGenres.forEach((genre) => {
+        const label = document.createElement("label");
+        const checkbox = document.createElement("input");
+        
+        checkbox.type = "checkbox";
+        checkbox.value = genre;
+        checkbox.name = "required-genre"; // Unique name for detection
+        
+        label.appendChild(checkbox);
+        label.appendChild(document.createTextNode(genre));
+        container.appendChild(label);
+    });
 }
 
 // --- Loads movies and creates checkboxes ---
