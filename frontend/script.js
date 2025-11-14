@@ -179,10 +179,17 @@ document.getElementById("getRecsBtn").addEventListener("click", async () => {
 	);
 	const movies = Array.from(movieCheckboxes).map((cb) => cb.value);
 
+	// Get mandatory genres
+	const mandatoryGenres = document.querySelectorAll(
+		'#mandatory-checkboxes input[name="required-genre"]:checked'
+	)
+	const mandatory = Array.from(mandatoryGenres).map((cb) => cb.value)
+
 	const payload = {
 		username: currentUser,
 		liked_genres: genres,
 		liked_movies: movies,
+		mandatory_genres: mandatory,
 		top_n: 12,
 	};
 
