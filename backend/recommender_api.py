@@ -295,7 +295,7 @@ def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = 
     final_scores = []
     GENRE_BOOST = 1.0 # Base Max boost for history/similarity 
     EXPLICIT_GENRE_BOOST = 5.0 # High boost for explicit user selection
-    IRRELEVANCE_PENALTY = 0.5 # Penalty for a lack of matching genres
+    IRRELEVANCE_PENALTY = 1.0 # Penalty for a lack of matching genres
 
     # NEW: Calculate content profile from Liked Movies and History
     if rec_type != 'collab':

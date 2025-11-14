@@ -277,11 +277,11 @@ button:disabled {
 /* Responsive adjustment for smaller screens */
 @media (max-width: 900px) {
     #recommendations.recommendation-grid {
-        grid-template-columns: repeat(3, 1fr); /* Switch to 2 columns */
+        grid-template-columns: repeat(3, 1fr); /* Switch to 3 columns */
     }
 }
 @media (max-width: 500px) {
     #recommendations.recommendation-grid {
-        grid-template-columns: 2fr; /* Switch to a single column */
+        grid-template-columns: repeat(2, 1fr); /* Switch to 2 columns */
     }
 }
