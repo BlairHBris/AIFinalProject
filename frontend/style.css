@@ -277,4 +277,7 @@ button:disabled {
     #recommendations.recommendation-grid {
         grid-template-columns: repeat(2, 1fr); /* Switch to 2 columns */
     }
+	.checkbox-grid {
+		grid-template-columns: repeat(3, 1fr); 
+	}
 }
