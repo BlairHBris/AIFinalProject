@@ -278,7 +278,7 @@ def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = 
         # Candidates are ALL unseen movies
         candidates_df = movies_df[~movies_df["movieid"].isin(seen)].copy()
 
-    # --- 1.5. Optional hard filter, mandatory genres (ROBUST IMPLEMENTATION) ---
+    # --- 1.a Optional hard filter, mandatory genres (ROBUST IMPLEMENTATION) ---
     if mandatory_genres:
         # 1. Standardize genre names to match the column headers (Title Case)
         mandatory_genre_columns = [g.title() for g in mandatory_genres]
@@ -308,6 +308,25 @@ def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = 
     else:
         # If no mandatory genres, candidates are just all unseen movies
         candidates = candidates_df["movieid"].tolist()
+    
+    # --- 1.b Genre matching constraint, must match at least one genre if 3+ are submitted and not pure CF model ---
+    if len(liked_genres) >= 3 and rec_type != 'collab':
+        
+        liked_genre_columns = [g.title() for g in liked_genres]
+        valid_liked_cols = [col for col in liked_genre_columns if col in candidates_df.columns]
+
+        if valid_liked_cols:
+            # Calculate the sum of OHE features for the liked genres.
+            # If the sum is >= 1, the movie matches at least one genre.
+            candidates_df['liked_sum'] = candidates_df[valid_liked_cols].sum(axis=1)
+            
+            candidates_df = candidates_df[
+                candidates_df['liked_sum'] >= 1
+            ].drop(columns=['liked_sum']).copy()
+    
+    candidates = candidates_df["movieid"].tolist()
+    if not candidates:
+        return []    
 
     # --- 2. Score Candidates (Prediction) ---
     preds = []
