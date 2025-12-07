@@ -259,7 +259,7 @@ def predict_batch(user_idx_int: int, movie_id_batch: List[int], user_content_fea
 
 
 # --- recommend_for_user ---
-def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = [], liked_movies: List[str] = [], rec_type: str = "hybrid", mandatory_genres: List[str]=[]) -> List[Dict[str, Any]]:
+def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = [], liked_movies: List[str] = [], mandatory_genres: List[str] = [], rec_type: str = "hybrid") -> List[Dict[str, Any]]:
     if movies_df is None or model is None:
         return []
 
@@ -287,29 +287,17 @@ def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = 
         valid_mandatory_cols = [col for col in mandatory_genre_columns if col in candidates_df.columns]
 
         if len(valid_mandatory_cols) != len(mandatory_genres):
-            # This should not happen based on your constraint, but serves as a final safety check.
-            print(f"⚠️ Mandatory genres not found in OHE features: {set(mandatory_genre_columns) - set(valid_mandatory_cols)}")
+            # This serves as a final safety check if external data is inconsistent
             return []
         
-        # 3. Apply the hard filter using column summation:
-        # Sum the OHE values for the mandatory columns. If the sum equals the number of mandatory genres, 
-        # the movie has ALL of them.
+        # 3. Apply the hard filter using column summation: movie must have ALL mandatory genres
         candidates_df['mandatory_sum'] = candidates_df[valid_mandatory_cols].sum(axis=1)
         
         candidates_df = candidates_df[
             candidates_df['mandatory_sum'] == len(valid_mandatory_cols)
         ].drop(columns=['mandatory_sum']).copy()
-        
-        # Update candidates list with the filtered IDs
-        candidates = candidates_df["movieid"].tolist()
-        
-        if not candidates:
-            return []
-    else:
-        # If no mandatory genres, candidates are just all unseen movies
-        candidates = candidates_df["movieid"].tolist()
     
-    # --- 1.b Genre matching constraint, must match at least one genre if 3+ are submitted and not pure CF model ---
+    # --- 1.b Soft constraint: must match at least one liked genre if 3+ are submitted (Hybrid/Content mode only) ---
     if len(liked_genres) >= 3 and rec_type != 'collab':
         
         liked_genre_columns = [g.title() for g in liked_genres]
@@ -317,16 +305,17 @@ def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = 
 
         if valid_liked_cols:
             # Calculate the sum of OHE features for the liked genres.
-            # If the sum is >= 1, the movie matches at least one genre.
+            # If the sum is >= 1, the movie matches at least one genre (OR condition).
             candidates_df['liked_sum'] = candidates_df[valid_liked_cols].sum(axis=1)
             
             candidates_df = candidates_df[
                 candidates_df['liked_sum'] >= 1
             ].drop(columns=['liked_sum']).copy()
     
+    # CONSOLIDATED STEP: Generate final candidates list after ALL filtering is complete
     candidates = candidates_df["movieid"].tolist()
     if not candidates:
-        return []    
+        return []
 
     # --- 2. Score Candidates (Prediction) ---
     preds = []
@@ -377,7 +366,6 @@ def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = 
         match_count = 0
 
         if liked_genres:
-            match_count = 0
             # Use the explicit selected genres for a direct, simple boost
             for g in liked_genres:
                 if g in candidates_df.columns and movie_row.get(g, 0) == 1:
@@ -386,11 +374,11 @@ def recommend_for_user(user_id: int, top_n: int = 12, liked_genres: List[str] = 
         
         # Penalty Logic
         adjusted_score = score
+        # Apply 1 star penalty if user selected genres AND movie has ZERO match
         if liked_genres and match_count == 0:
             adjusted_score = score - IRRELEVANCE_PENALTY
         
         # --- 3d(ii) Content Profile Similarity Boost (NEW LOGIC) ---
-        # This uses the combination of liked movies AND positive history
         similarity_boost = 0.0
         if np.any(user_content_profile != 0) and rec_type != 'collab':
             
